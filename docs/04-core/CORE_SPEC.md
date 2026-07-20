@@ -50,7 +50,7 @@ pub enum Rarity: u8 {
 
 #[repr(C)]
 pub enum TechniqueType: u8 {
-    Jab, Hook, Uppercot, Cross, Kick, Elbow, Block,
+    Jab, Hook, Uppercut, Cross, Kick, Elbow, Block,
 }
 
 #[repr(C)]

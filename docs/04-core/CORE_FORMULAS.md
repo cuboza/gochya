@@ -351,16 +351,9 @@ rating_delta(winnerRating, loserRating):
     return K * (1 - expected)   // добавляется победителю, вычитается у проигравшего
 ```
 
-### 6.2. Гача-дропы (пример для баннера)
+### 6.2. Гача-дропы
+Конкретные проценты по каждому баннеру — **только** в `docs/05-security/BALANCE.md` §6 (`GACHA DROP_TABLES`), это единственный источник истины для чисел дропа. Здесь — только структура pity, общая для всех баннеров:
 ```
-DROP_TABLE:
-    Common:    55%
-    Uncommon:  25%
-    Rare:      13%
-    Epic:      5%
-    Legendary: 1.5%
-    Mythic:    0.5%
-
 PITY:
     rare_pity_threshold = 10    // после 10 pull'ов без Rare+ — гарантия Rare+
     epic_pity_threshold = 50    // после 50 — гарантия Epic+
