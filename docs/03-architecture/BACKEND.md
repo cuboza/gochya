@@ -100,6 +100,20 @@ CREATE TABLE players (
     UNIQUE(auth_method, auth_subject)
 );
 
+-- Refresh-токены (audit D5/B12: для refresh rotation — без этой таблицы политика инвалидации не работает)
+CREATE TABLE refresh_tokens (
+    id              UUID PRIMARY KEY,
+    player_id       UUID NOT NULL REFERENCES players(id),
+    token_hash      TEXT NOT NULL,           -- SHA-256 от refresh token (не хранить plaintext!)
+    issued_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    revoked_at      TIMESTAMPTZ,             -- при rotation предыдущий токен помечается
+    replaced_by     UUID REFERENCES refresh_tokens(id),
+    device_id       TEXT                     -- привязка к устройству (опц.)
+);
+CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash) WHERE revoked_at IS NULL;
+CREATE INDEX idx_refresh_tokens_player ON refresh_tokens(player_id);
+
 -- Питомцы
 CREATE TABLE pets (
     id              UUID PRIMARY KEY,
@@ -219,6 +233,9 @@ CREATE TABLE daily_activity (
     snapshot        JSONB NOT NULL,      -- DailyActivitySnapshot (последний за день)
     vitality_awarded INT NOT NULL DEFAULT 0,   -- сколько УЖЕ начислено за этот день
     stat_gains      JSONB NOT NULL,
+    source_metadata TEXT NOT NULL,       -- audit D5/T5: 'healthkit://watch' / 'samsung_health://watch' / 'google_fit://phone'
+                                          -- ВНИМАНИЕ: это НЕ криптографическая подпись (см. ANTICHEAT.md §5.5),
+                                          -- только metadata для дедупликации и приоритизации источников
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (player_id, date)
 );
@@ -300,12 +317,23 @@ CREATE TABLE anticheat_events (
 
 ## 5. API КОНТРАКТ (REST, основные эндпоинты)
 
+> ⚠️ **Аудит V5/D5:**
+> - **Versioning:** все эндпоинты имеют префикс `/v1/` (ниже опущено для краткости).
+> - **Idempotency:** `POST /me/pets/:id/feed`, `/breeding/breed`, `/me/techniques/equip`, `/dojo/submit` принимают заголовок `Idempotency-Key: <uuid>` — повторный запрос с тем же ключом возвращает сохранённый результат, не дублируя действие.
+> - **Pagination:** все списки используют cursor-based: `?limit=20&cursor=<base64>` → `{ items, next_cursor }`.
+> - **Error response body** (единая структура):
+>   ```json
+>   { "error": { "code": "VALIDATION_FAILED", "message": "hunger already at max", "details": {...}, "request_id": "uuid" } }
+>   ```
+> - **Error codes (каталог):** `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `CORE_ERROR` (с маппингом `CoreError`), `IAP_INVALID`, `ANTICHEAT_REJECTED`, `INTERNAL`.
+
 ### Auth
 ```
-POST   /auth/apple         { identityToken }           → { jwt, player }
-POST   /auth/samsung       { accessToken }             → { jwt, player }
-POST   /auth/google        { idToken }                 → { jwt, player }
-POST   /auth/refresh       { refreshToken }            → { jwt }
+POST   /v1/auth/apple         { identityToken }           → { jwt, refreshToken, player }
+POST   /v1/auth/samsung       { accessToken }             → { jwt, refreshToken, player }
+POST   /v1/auth/google        { idToken }                 → { jwt, refreshToken, player }
+POST   /v1/auth/refresh       { refreshToken }            → { jwt, refreshToken }   // rotation: старый инвалидируется
+POST   /v1/auth/logout        { refreshToken }            → 204   // revoke
 ```
 
 ### Profile / Pets
@@ -451,10 +479,24 @@ func findMatch(player Player, loadout Loadout, mode Mode) (Match, error) {
 ### Galaxy Store IAP
 - При покупке клиент получает `purchaseId`.
 - Сервер через **Galaxy Store IAP Server API** валидирует (`verifyPurchase`).
+- ⚠️ Покрытие server API ограничено по сравнению с Apple/Google — тестировать edge cases (refunds, cancellations) вручную.
+- ⚠️ **Galaxy Store IAP на часах не сертифицирован Samsung** — покупки идут через companion/телефон.
+
+### Webhook-верификация (audit D5 — критично для безопасности)
+- **App Store Server Notifications V2:** каждый webhook — это **JWS** (signed JWT). Сервер ОБЯЗАН:
+  1. Верифицировать signature по Apple's certificate chain (загружается с `Apple Root CA`).
+  2. Проверить `x5c` header chain.
+  3. Декодировать payload, проверить `notificationType` и `signedTransactionInfo` (отдельный JWS внутри).
+- **Google RTDN:** приходит через Pub/Sub. Верификация:
+  1. Pub/Sub message OIDC token проверяется через Google's public keys.
+  2. `messageId` идемпотентен (хранить в Redis 90 дней).
+- **Galaxy Store webhook:** проверка HMAC-SHA256 с shared secret (задаётся в Galaxy Store developer console).
+- **Retry-политика:** все три стора ретраят webhook при не-2xx. Сервер должен быть идемпотентен по `transactionId`/`messageId`.
 
 ### Идемпотентность
 - Каждая покупка хранится с уникальным `transactionId`, повторная валидация — no-op.
 - Награды выдаются ровно один раз.
+- Webhooks: повторная доставка того же `transactionId` — no-op (проверка по БД перед начислением).
 
 ---
 

@@ -17,8 +17,8 @@
 | Роль | Главные файлы | Типичные задачи |
 |---|---|---|
 | **Core Engineer** | `docs/04-core/CORE_SPEC.md`, `CORE_FORMULAS.md` | Реализация Shared Core на C#/Rust, формулы, геном, бой |
-| **watchOS Engineer** | `docs/03-architecture/CLIENT_WATCHOS.md` | SwiftUI/WatchKit + SceneKit, CoreMotion, HealthKit |
-| **Wear OS Engineer** | `docs/03-architecture/CLIENT_WEAROS.md` | Unity + Wear OS, SensorManager,bezels, плагин к ядру |
+| **watchOS Engineer** | `docs/03-architecture/CLIENT_WATCHOS.md` | SwiftUI/WatchKit + SpriteKit, CoreMotion, HealthKit |
+| **Wear OS Engineer** | `docs/03-architecture/CLIENT_WEAROS.md` | Kotlin + Compose for Wear OS + Filament, SensorManager, Samsung Health |
 | **Companion Engineer** | `docs/03-architecture/CLIENT_COMPANION.md` | Flutter, магазин, турниры, родословная, инвентарь |
 | **Backend Engineer** | `docs/03-architecture/BACKEND.md`, `ANTICHEAT.md` | Go/Node + PostgreSQL/Redis, матчмейкинг, IAP, античит |
 | **Game Designer** | `docs/01-design/GDD.md`, `docs/02-mechanics/*`, `BALANCE.md` | Баланс, формулы, дроп-таблицы, ивенты |
@@ -42,6 +42,7 @@
 - Бой, PvP-результаты, IAP, геном потомка, мутации, vitality **считаются на сервере**.
 - Клиент только отправляет намерения («хочу дуэль», «выбираю карту X») и отображает результат.
 - Клиент **никогда** не решает исход боя и не присваивает предметы/валюту.
+- **Исключение (audit S2):** `technique_type` (тип удара) — доверенный клиентский ввод, так как его серверная верификация потребовала бы передачи сырого сигнала. Защита — вероятностный аудит распределения типов (`ANTICHEAT.md §3.5`), не жёсткая валидация.
 - См. `docs/05-security/ANTICHEAT.md`.
 
 ### 2.3. Батарея — главный KPI носимой платформы
@@ -50,9 +51,10 @@
 - Все фоновые задачи — через системные API (HealthKit / Samsung Health), чтение агрегатов, не raw signal.
 - Performance-бюджет см. в `CLIENT_*.md`.
 
-### 2.4. Приватность
-- Сырые данные сенсоров (сырой сигнал акселерометра, raw ЭКГ/пульс) **не покидают устройство**.
-- На сервер уходят только производные метрики (4 числа пульса, нормированные дневные агрегаты, ID карт, геном в виде сериализованных значений).
+### 2.4. Приватность (privacy-first, финализировано в audit S1)
+- Сырые данные сенсоров (сырой сигнал акселерометра, гироскопа, raw ЭКГ/пульс) **никогда не покидают устройство**.
+- На сервер уходят только производные метрики: 4 числа пульса (`HR_present/mean/delta/confidence`), нормированные дневные агрегаты (шаги/сон/калории), `client_entropy` (одно float), `replay_hash` (SHA-256 от метрик), ID карт, геном.
+- **Чего НЕТ в античите:** серверной спектральной/гироскопической валидации формы удара (физически невозможна без передачи сигнала). См. `ANTICHEAT.md §3.7`.
 - Явный consent на доступ к сенсорам и health-данным. Отказ → деградированный режим без блокировок.
 
 ### 2.5. Этичная монетизация и баланс
@@ -67,17 +69,17 @@
 | Параметр | Galaxy Watch (Wear OS) | Apple Watch (watchOS) |
 |---|---|---|
 | Форма экрана | круглый 1.2–1.5″, ~450–480px | прямоугольный: 396×484 (45мм), 410×502 (49мм Ultra) |
-| RAM | ~1.5 ГБ | ~1–1.5 ГБ |
-| Батарея | 282–590 мАч | ~308–564 мАч (максимум — Ultra 2) |
-| Ввод | тач, rotating bezel, кнопка, Bixby | тач, Digital Crown, кнопка, Siri |
+| RAM | ~1.5–2 ГБ | ~1–2 ГБ (S9 ~1 ГБ, Ultra 2 ~2 ГБ) |
+| Батарея | 282–590 мАч | ~308–762 мАч (максимум — Ultra 2) |
+| Ввод | тач, rotating bezel, кнопка, Bixby | тах, Digital Crown, кнопка, Siri |
 | Акселерометр | `SensorManager` TYPE_ACCELEROMETER | `CMMotionManager` |
-| Пульс realtime | Samsung Health Sensors API (~1 Гц) | `HKWorkoutSession` + `HKLiveWorkoutBuilder` (только так) |
+| Пульс realtime | Samsung Health Sensors API (~1 Гц, **требует partner approval**) | `HKWorkoutSession` + `HKLiveWorkoutBuilder` (только так) |
 | Здоровье | Samsung Health SDK, Health Services | HealthKit |
-| IAP | Galaxy Store IAP, Google Play Billing | StoreKit 2 |
-| Рантайм | **Unity** (LTS) + native plugin (Core) | **натив** SwiftUI + WatchKit + SceneKit + Core plugin |
-| AOD | Ambient mode в Unity | WidgetKit / complications, 1 FPS |
+| IAP | **через companion** (Galaxy Store IAP на часах не сертифицирован) | StoreKit 2 |
+| Рантайм | **нативный Kotlin + Filament + Compose for Wear OS** | **натив** SwiftUI + WatchKit + SpriteKit + Core plugin |
+| AOD | AmbientModeSupport | WidgetKit / complications, 1 FPS |
 
-> **Unity не поддерживает watchOS.** Поэтому watchOS-клиент — обязательно нативный. Это архитектурное правило, а не выбор.
+> **Оба клиента нативные.** Unity на Wear OS не имеет официальной поддержки (audit S3) и заменён на нативный Kotlin + Filament. watchOS-клиент всегда был нативным (Unity не поддерживает watchOS). SceneKit deprecated (WWDC 2025) — заменён на SpriteKit для soft 3D look.
 
 ---
 
@@ -103,14 +105,14 @@
 По умолчанию, если пользователь не указал конкретную задачу, работай в следующем порядке (он же — фундамент всего):
 
 ### Этап 0 — Фундамент Shared Core (обязательно первым)
-1. Инициализировать монорепо: `core/` (Rust или C# .NET NativeAOT), `clients/watchos/`, `clients/wearos/` (Unity), `clients/companion/` (Flutter), `server/`, `docs/` (уже есть).
+1. Инициализировать монорепо: `core/` (Rust), `clients/watchos/` (Swift/SpriteKit), `clients/wearos/` (Kotlin/Filament), `clients/companion/` (Flutter), `server/` (Go+cgo), `docs/` (уже есть).
 2. Реализовать типы из `CORE_SPEC.md`: `Genome`, `Pet`, `TechniqueCard`, `HeartRateEvidence`, `DailyActivitySnapshot`, `MatchResult`.
-3. Реализовать формулы из `CORE_FORMULAS.md`: `quality_score`, `validate_heart`, `compute_vitality`, `compute_combat_round`.
-4. Покрыть ядро unit-тестами на детерминизм: одинаковые входы → одинаковые выходы на всех платформах.
-5. CI: сборка ядра под 4 таргета (iOS arm64, Android aarch64, wasm для сервера, x86_64 для тестов).
+3. Реализовать формулы из `CORE_FORMULAS.md`: `quality_score`, `validate_heart`, `compute_vitality`, `simulate_combat` (включая AI выбора карт из §5.2-extended).
+4. Покрыть ядро unit + property + golden тестами на детерминизм: одинаковые входы → одинаковые выходы на всех платформах.
+5. CI: сборка ядра под 5 таргетов (`aarch64-apple-ios`, `aarch64-apple-watchos`, `x86_64-apple-ios-simulator`, `aarch64-linux-android`, `x86_64-unknown-linux-gnu`).
 
 ### Этап 1 — MVP-вертикаль (см. `docs/07-roadmap/MVP.md`)
-Скоуп: 1 питомец, 4 потребности, 1 эволюция, 1 тренировка каждого типа, запись ударов, пульс-античит, простой PvP (duel), магазин из 10 предметов, companion с лидербордом.
+Скоуп (актуальный, audit B7): 3 стартовых существа (Fire/Water/Earth), 4 потребности, 3 перехода эволюции (Egg→Baby→Teen→Adult), 1 тренировка каждого типа, запись ударов с пульс-античитом, **полный PvP** (casual + ranked + сезоны + лиги Bronze→Master), базовый бридинг (наследование + мутации + 1 гибрид Steam), магазин из 10+ предметов, гача, Battle Pass (30 уровней), companion с магазином/инвентарём/лидербордом/родословной.
 
 ### Этап 2 — Expansion
 Бридинг с рынком, гибриды, сезонные чемпионаты, кланы, Battle Pass.

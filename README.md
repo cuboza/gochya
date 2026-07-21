@@ -31,14 +31,15 @@
 | `MECHANIC_BREEDING.md` | **Бридинг**: геном, наследование, мутации, гибриды |
 | `MECHANIC_SYNERGY.md` | **Симбиоз**: реальная активность владельца растит питомца |
 | `MECHANIC_HEART_GATE.md` | **Пульс-античит** для валидации записи ударов |
+| `MECHANIC_ML_CLASSIFIER.md` | **ML-классификатор ударов**: DTW, шаблоны, план сбора датасета |
 
 ### 🏗 Архитектура (`docs/03-architecture/`)
 
 | Файл | Содержание |
 |---|---|
 | `ARCHITECTURE.md` | Общая архитектура «общее ядро + нативные оболочки», диаграммы |
-| `CLIENT_WATCHOS.md` | Нативный клиент на Apple Watch (Swift/SwiftUI/SceneKit) |
-| `CLIENT_WEAROS.md` | Unity-клиент на Galaxy Watch / Wear OS |
+| `CLIENT_WATCHOS.md` | Нативный клиент на Apple Watch (Swift/SwiftUI/**SpriteKit**) |
+| `CLIENT_WEAROS.md` | **Нативный** клиент на Galaxy Watch / Wear OS (**Kotlin + Filament**) |
 | `CLIENT_COMPANION.md` | Flutter companion-приложение для телефона |
 | `BACKEND.md` | Сервер, БД, матчмейкинг, IAP-валидация, античит |
 
@@ -53,7 +54,7 @@
 
 | Файл | Содержание |
 |---|---|
-| `ANTICHEAT.md` | Многослойный античит: пульс, спектр, replay, server-authority |
+| `ANTICHEAT.md` | Многослойный античит: heart gate, replay-detection, клиентская энтропия, вероятностный аудит (privacy-first) |
 | `BALANCE.md` | Числа баланса, кривые прогрессии, дроп-таблицы гачи |
 
 ### 🎨 Арт и UX (`docs/06-art/`)
@@ -79,7 +80,7 @@
 - **Backend-инженер** → `ARCHITECTURE.md` + `BACKEND.md` + `CORE_SPEC.md` + `ANTICHEAT.md`.
 - **Engineer Shared Core** → `CORE_SPEC.md` + `CORE_FORMULAS.md` + `BALANCE.md`.
 - **watchOS-инженер** → `CLIENT_WATCHOS.md` + `MECHANIC_COMBAT_RECORDING.md` + `MECHANIC_HEART_GATE.md` + `CORE_SPEC.md`.
-- **Wear OS / Unity-инженер** → `CLIENT_WEAROS.md` + механики + `CORE_SPEC.md`.
+- **Wear OS / Kotlin-инженер** → `CLIENT_WEAROS.md` + механики + `CORE_SPEC.md`.
 - **Flutter / companion** → `CLIENT_COMPANION.md` + `GDD.md` (магазин, турниры, родословная).
 - **Геймдизайнер** → все `docs/01-design/` + `docs/02-mechanics/` + `BALANCE.md`.
 - **Художник/арт-лид** → `ART_BIBLE.md` + `UX_UI.md` + `EXECUTIVE_SUMMARY.md`.

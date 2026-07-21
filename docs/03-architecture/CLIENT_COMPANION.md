@@ -161,6 +161,8 @@ companion/
 
 ## 6. CORE BRIDGE (`dart:ffi`)
 
+> ⚠️ **Аудит T3 (критично):** прежний код использовал `DynamicLibrary.open('GOCHYACore.framework/...')` на iOS — это **запрещено** App Store (запрет `dlopen` для сторонних фреймворков; пройдёт debug, упадёт в release/TestFlight/App Review). На iOS нужно **статически линковать** Rust staticlib через Flutter plugin и использовать `DynamicLibrary.process()` (поиск символов в главном бинарнике).
+
 ```dart
 // core_bindings.dart
 import 'dart:ffi';
@@ -175,9 +177,11 @@ class Core {
   late final _QualityScore _qualityScore;
 
   Core() {
-    _lib = DynamicLibrary.open(
-      Platform.isIOS ? 'GOCHYACore.framework/GOCHYACore' : 'libgochya_core.so',
-    );
+    // audit T3: iOS — статическая линковка, символы в главном бинарнике
+    // Android — динамическая загрузка .so
+    _lib = Platform.isIOS
+        ? DynamicLibrary.process()                                  // ← НЕ .open()!
+        : DynamicLibrary.open('libgochya_core.so');
     _qualityScore = _lib.lookupFunction<_QualityScoreNative, _QualityScore>('gochya_quality_score');
   }
 
@@ -194,9 +198,19 @@ class Core {
 - Marshalling Dart ↔ C — в `types.dart`.
 - Все формулы — вызовы в ядро, не пересчитываются локально.
 
----
+### Сборка iOS (audit T3)
+1. Rust: `cargo build --release --target aarch64-apple-ios` → `libgochya_core.a` (staticlib).
+2. Создать Flutter **plugin** (CocoaPods), который линкует `libgochya_core.a` статически в нативную часть плагина.
+3. В `ios/gochya_core.podspec` указать `s.vendored_libraries = 'Libs/libgochya_core.a'` и `s.libraries = 'c++'`.
+4. В итоге символы ядра попадают в главный бинарник приложения → `DynamicLibrary.process()` их находит.
+5. **Не** использовать embedded dynamic framework — это нарушит App Review.
 
-## 7. IAP
+### Сборка Android
+1. Rust: `cargo build --release --target aarch64-linux-android` → `libgochya_core.so`.
+2. Поместить в `android/app/src/main/jniLibs/arm64-v8a/libgochya_core.so`.
+3. `DynamicLibrary.open('libgochya_core.so')` загружает в рантайме (разрешено на Android).
+
+---
 
 - `in_app_purchase` plugin для единого API.
 - iOS: StoreKit 2.

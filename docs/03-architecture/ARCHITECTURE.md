@@ -8,17 +8,17 @@
 
 ```
         ┌─────────────────────────────────────────┐
-        │  SHARED GAME CORE (Rust или C#/.NET)     │  ← вся игровая логика
-        │  • Genom, Pet, TechniqueCard, Combat     │     детерминированная
-        │  • Formulas (баланс, урон, мутации)      │     тестируется без UI
-        │  • Античит-хелперы                       │     компилируется под 4 таргета
+        │  SHARED GAME CORE (Rust)                │  ← вся игровая логика
+        │  • Genome, Pet, TechniqueCard, Combat   │     детерминированная
+        │  • Formulas (баланс, урон, мутации)     │     тестируется без UI
+        │  • Античит-хелперы                      │     компилируется под 5 таргетов
         └─────────────────────────────────────────┘
               ▲           ▲           ▲           ▲
               │           │           │           │
    ┌──────────┴──┐ ┌──────┴────┐ ┌────┴─────┐ ┌───┴────┐
    │  watchOS    │ │  Wear OS  │ │Comp-     │ │ Server │
-   │  (SwiftUI + │ │  (Unity +  │ │anion     │ │ (Go/   │
-   │  SceneKit)  │ │  plugin)  │ │(Flutter) │ │  Node) │
+   │  (SwiftUI + │ │  (Kotlin + │ │anion     │ │ (Go +  │
+   │  SpriteKit) │ │  Filament)│ │(Flutter) │ │  cgo)  │
    └─────────────┘ └───────────┘ └──────────┘ └────────┘
 ```
 
@@ -32,11 +32,11 @@
 
 | Компонент | Технология | Роль |
 |---|---|---|
-| **Shared Core** | Rust (рекомендуется) или C#/.NET 8 NativeAOT | Игровая логика, формулы, типы |
-| **watchOS client** | Swift, SwiftUI, WatchKit, SceneKit, CoreMotion, HealthKit, StoreKit 2 | Apple Watch приложение |
-| **Wear OS client** | Unity LTS (C#) + native plugin | Galaxy Watch приложение |
+| **Shared Core** | Rust | Игровая логика, формулы, типы |
+| **watchOS client** | Swift, SwiftUI, WatchKit, **SpriteKit** (soft 3D), CoreMotion, HealthKit, StoreKit 2 | Apple Watch приложение |
+| **Wear OS client** | **Kotlin, Jetpack Compose for Wear OS, Filament** (PBR), SensorManager, Health Services | Galaxy Watch приложение |
 | **Companion (iOS/Android)** | Flutter | Магазин, турниры, инвентарь, родословная, рынок |
-| **Backend** | Go (рекомендуется) или Node.js | API, матчмейкинг, IAP, античит, лидерборды |
+| **Backend** | Go + **cgo** (нативная линковка Rust staticlib) | API, матчмейкинг, IAP, античит, лидерборды |
 | **DB** | PostgreSQL + Redis | Профили, инвентарь, кэш, лидерборды |
 | **Realtime** | WebSocket | Живые турниры, матчмейкинг, дуэли |
 
@@ -70,18 +70,19 @@ gochya/
 │   │   ├── breeding.rs                  ← breed(), наследование
 │   │   ├── matchmaking.rs               ← effective_power, tolerance
 │   │   ├── rng.rs                       ← детерминированный Rng (seed)
+│   │   ├── combat_ai.rs                 ← AI выбора карт (жадная эвристика)
 │   │   └── serde_helpers.rs
-│   ├── tests/                           ← unit + property tests
+│   ├── tests/                           ← unit + property + golden tests
 │   └── ffi/                             ← биндинги
-│       ├── swift/                       ← .xcframework для watchOS
-│       ├── csharp/                      ← P/Invoke для Unity
-│       ├── dart_ffi/                    ← dart:ffi для Flutter (НЕ JNI)
-│       └── wasm/                        ← для сервера (если нужен)
+│       ├── swift/                       ← .xcframework (iOS + watchOS slices)
+│       ├── jni/                         ← JNI для нативного Kotlin (Wear OS)
+│       ├── dart_ffi/                    ← dart:ffi для Flutter
+│       └── cgo/                         ← C-header для Go-сервера (cgo)
 ├── clients/
-│   ├── watchos/                         ← Xcode project (Swift)
-│   ├── wearos/                          ← Unity project (C#)
+│   ├── watchos/                         ← Xcode project (Swift, SpriteKit)
+│   ├── wearos/                          ← Android project (Kotlin, Filament)
 │   └── companion/                       ← Flutter project (Dart)
-├── server/                              ← Go/Node backend
+├── server/                              ← Go backend (cgo)
 │   ├── cmd/api/
 │   ├── internal/
 │   │   ├── auth/
@@ -104,16 +105,24 @@ gochya/
 
 ## 4. SHARED CORE — ТРАНСПОРТЫ
 
+> **Решение аудита (S4, T1, T2):** зафиксировано **5 таргетов** компиляции (не 4), серверная интеграция — через **cgo** (нативная статическая линковка), WASM убран из основного пути.
+
 Ядро компилируется в несколько форм:
 
 | Таргет | Формат | Использовать |
 |---|---|---|
-| **iOS / watchOS** | static `.xcframework` (arm64) | Swift bridge через FFI |
-| **Android / Wear OS** | `.so` (aarch64) + C# P/Invoke | Unity-плагин |
-| **Server** | статическая библиотека или WASM | серверная валидация |
-| **Tests / CI** | native x86_64 | unit/property tests |
+| **iOS device** | static `.a` → `.xcframework` slice (`aarch64-apple-ios`) | Swift bridge через FFI |
+| **watchOS device** | static `.a` → `.xcframework` slice (`aarch64-apple-watchos`, Series 4+) | Swift bridge через FFI |
+| **iOS simulator** | `.xcframework` slice (`x86_64-apple-ios-simulator`) | разработка/тесты |
+| **Android / Wear OS** | `.so` (`aarch64-linux-android`) | JNI для нативного Kotlin-клиента |
+| **Server** | статическая `.a` (`x86_64-unknown-linux-gnu`) → **cgo** | серверная валидация |
+| **Tests / CI** | native x86_64 | unit/property/golden tests |
 
-Биндинги в `core/ffi/` генерируются автоматически (cbindgen для C-header → Swift/C#).
+> ⚠️ **Важно (T1):** `aarch64-apple-ios` и `aarch64-apple-watchos` — **разные triple** с разным ABI (watchOS использует 32-битные указатели на старых моделях, отдельный deployment target). Один `.xcframework` содержит оба как slices, но компилируются они раздельно.
+
+> ⚠️ WASM (`wasm32-wasip1`, **не** `wasm32-unknown-unknown` — T2) оставлен как опция для будущего sandboxing, **не для MVP**. Альтернатива cgo на сервере — pure-Go `wazero` runtime, если cgo overhead станет узким местом.
+
+Биндинги в `core/ffi/` генерируются автоматически (cbindgen для C-header → Swift/JNI/Kotlin).
 
 ---
 
@@ -224,7 +233,7 @@ gochya/
 |---|---|
 | `core-ci` | cargo build/test/clippy под всеми таргетами; генерация биндингов |
 | `watchos-ci` | xcodebuild для watchOS; unit-тесты |
-| `wearos-ci` | Unity build для Wear OS; |
+| `wearos-ci` | Kotlin/Filament build для Wear OS; |
 | `companion-ci` | flutter test/build для iOS + Android |
 | `server-ci` | go test + линтеры + docker build |
 | `integration` | e2e: клиент ↔ сервер, имитация дуэли, записи удара, синхронизации |
@@ -237,12 +246,17 @@ gochya/
 | Метрика | Цель |
 |---|---|
 | Cold start watchOS | ≤ 1.5 сек |
-| Cold start Wear OS (Unity) | ≤ 3 сек |
-| FPS активной игры | 30 (60 опц.) |
+| Cold start Wear OS (нативный Kotlin) | ≤ 2 сек |
+| FPS активной игры (watchOS) | 60 |
+| FPS активной игры (Wear OS) | 60 |
 | FPS в AOD | 1 |
+| Память active (watchOS) | ≤ 150 МБ |
+| Память active (Wear OS) | ≤ 150 МБ |
+| Память active (companion) | ≤ 400 МБ |
 | Расход батареи в фоне | ≤ 2%/час |
 | Расход батареи в Dojo (16 сек) | ≤ 0.5% |
-| Размер APK на часах | ≤ 50 МБ |
+| Размер APK на часах (Wear OS) | ≤ 20 МБ |
+| Размер бандла watchOS | ≤ 50 МБ |
 | Размер companion-app | ≤ 80 МБ |
 
 ---

@@ -43,8 +43,8 @@
       │     ╭─────────────╮          │
       │     │             │          │   ← питомец в центре (60% высоты)
       │     │     ПИТ     │          │
-      │     │   (SceneKit │          │
-      │     │   /Scene)   │          │
+      │     │  (SpriteKit │          │
+      │     │   soft 3D)  │          │
       │     ╰─────────────╯          │
       │                               │
       │   🍔◐  💤◑  🛁◓  ❤️●       │   ← 4 индикатора потребностей (дуги)
@@ -221,20 +221,52 @@ Bottom Navigation (5 табов):
 Общая длительность: 8–12 мин, с возможностью skip.
 ```
 
+> ⚠️ **Аудит V8/V9 (дополнения к onboarding):**
+> - **Шаг 1.5 (audit F3 — age-gate для COPPA):** после логина, перед созданием питомца — запрос даты рождения. Если < 13 лет:
+>   - включить **COPPA-режим**: нет сбора health-данных, нет device fingerprint, нет аналитики;
+>   - запросить **parental consent** flow (email родителя, подтверждение);
+>   - закрыть доступ к IAP и PvP-рейтинговому режиму.
+> - **Шаг 11 (Dojo):** критический edge-case — что если первая запись отклонена heart gate (плохой контакт)? Сделать мягкий fallback: показать «Не получилось зафиксировать пульс. Попробуй ещё раз или пропусти — карту выдадим по туториальной заготовке». **Не блокировать онбординг.**
+> - **Туториальный бот (шаг 12):** loadout бота зафиксирован (3 Common-карты), AI всегда выбирает карту с минимальным уроном в первые 2 раунда, потом normal. Игрок гарантированно побеждает (positive first impression).
+> - **Skip:** пропускает обучение, но НЕ пропускает обязательные шаги (1, 2, 3 — аккаунт/consent/age-gate). Остальное можно skip'нуть.
+
+### Empty / Error / Loading states (audit V8 — добавить ко всем экранам)
+
+Для каждого экрана companion и watch-клиента должны быть определены:
+- **Loading:** skeleton/spinner с фирменным стилем (питомец «думает», а не голый спиннер).
+- **Empty:** когда нет данных (нет питомцев, нет боёв, нет друзей) — иконка + CTA («Создай первого питомца», «Добавь друга»).
+- **Error:** дружелюбное сообщение + кнопка retry. Для сетевых ошибок — оффлайн-баннер «Не получилось сохранить. Покажем, когда появится связь».
+- **No-permission:** для Health/Sensors — «Доступ запрещён. Открой настройки».
+
 ---
 
-## 9. УВЕДОМЛЕНИЯ — ЛУЧШИЕ ПРАКТИКИ
+## 9. УВЕДОМЛЕНИЯ — ПОЛНЫЙ КАТАЛОГ (audit V8)
 
 - **Заголовок:** ≤ 30 символов.
 - **Текст:** ≤ 60 символов.
 - **Action:** тап → переход на конкретный экран (deep link).
 - **Частота:** ≤ 3/день, priority queue.
 - **Тихие часы:** 22:00–07:00 по timezone игрока (кроме срочных).
+- **Cooldown per template:** 1 push/шаблон в день (кроме priority 1).
 
-Примеры:
-- ✅ *«[Питомец] проголодался»* → тап → экран кормления
-- ✅ *«Яйцо готово! Нажми, чтобы вылупить»* → тап → инкубатор
-- ❌ *«Вернись в игру, ты давно не играл!»* (скучно)
+### Каталог шаблонов (с localization keys)
+
+| Template ID | Priority | Trigger | Title (EN) | Body (EN) | Deep link | Cooldown |
+|---|---|---|---|---|---|---|
+| `pet.hungry` | 3 | hunger=0 >3h | `{petName} is hungry` | `Time to feed!` | `/pet/feed` | 1/день |
+| `pet.dirty` | 3 | hygiene=0 >6h | `{petName} needs a bath` | `Things got messy...` | `/pet/clean` | 1/2дня |
+| `egg.ready` | 1 | incubation done | `Egg is ready!` | `Tap to hatch 🥚` | `/breeding/incubator` | нет |
+| `activity.goal_half` | 2 | steps=50% goal | `Halfway there!` | `{steps} steps · +{vitality} Vitality` | `/activity` | 1/день |
+| `activity.goal_done` | 2 | steps≥goal | `Daily goal done!` | `+{vitality} Vitality for {petName}` | `/activity` | 1/день |
+| `workout.logged` | 2 | workout recorded | `Workout counted!` | `+{stat} for {petName}` | `/activity` | нет (≤3/день всего) |
+| `friend.challenge` | 1 | friend invites duel | `{friendName} challenges you!` | `Accept the duel ⚔️` | `/pvp/challenge/{id}` | нет |
+| `season.ending` | 2 | 3 days to season end | `Season ends in 3 days` | `You're in {league}. Final push!` | `/pvp/leaderboard` | 1/сезон |
+| `bp.tier_close` | 2 | 1 level to BP reward | `Almost there!` | `1 more level to {reward}` | `/battlepass` | 1/день |
+| `stress.high` | 3 | stress>70 (фаза 2) | `Take a breath` | `{petName} feels your stress too` | `/pet/hug` | 1/2дня |
+
+### Ключи локализации
+- Формат: `notifications.{template_id}.title` / `.body`.
+- Плюрали (русский): использовать ICU MessageFormat (`{steps, plural, one {# шаг} few {# шага} many {# шагов}}`).
 
 ---
 

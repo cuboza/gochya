@@ -22,7 +22,7 @@
 | Таргет | Выход |
 |---|---|
 | `aarch64-apple-ios` (watchOS/iOS) | `libgochya_core.a` → `.xcframework` |
-| `aarch64-linux-android` (Wear OS) | `libgochya_core.so` → Unity plugin |
+| `aarch64-linux-android` (Wear OS) | `libgochya_core.so` → JNI для Kotlin-клиента |
 | `x86_64-unknown-linux-gnu` (server) | `.a` или cgo |
 | `wasm32-unknown-unknown` (опц. сервер) | `.wasm` |
 | `x86_64-*` (CI/тесты) | native binary |
@@ -428,6 +428,53 @@ pub struct Price { pub currency: Currency, pub amount: u32 }
 
 #[repr(u8)]
 pub enum Currency { Koins = 0, Gems = 1, Vitality = 2, Crowns = 3 }
+
+// audit V1: Player/Wallet/Inventory как core-типы (не только SQL)
+#[repr(C)]
+pub struct Player {
+    pub id:            [u8; 16],
+    pub display_name:  [u8; 32],
+    pub created_at:    u64,
+    pub timezone:      [u8; 32],   // IANA tz string, null-padded
+    pub active_pet_id: [u8; 16],
+    pub streak_days:   u32,        // для synergy multiplier (раньше было «негде хранить»)
+}
+
+#[repr(C)]
+pub struct Wallet {
+    pub player_id:       [u8; 16],
+    pub koins:           u64,
+    pub gems:            u64,
+    pub vitality_daily:  u32,   // обнуляется при смене суток
+    pub vitality_date:   u32,   // unix day (ts / 86400)
+    pub crowns:          u32,
+}
+
+// Inventory — коллекция стеков; ядро оперирует массивом, сервер хранит в SQL
+#[repr(C)]
+pub struct InventoryEntry {
+    pub item_def_id: u32,
+    pub quantity:    u32,
+    pub metadata:    [u8; 32],  // для equipped/pet binding и пр.
+}
+
+#[repr(C)]
+pub struct Inventory {
+    pub player_id: [u8; 16],
+    pub entries:   *const InventoryEntry,
+    pub entries_len: u32,
+}
+
+// audit V7: турнирный bracket
+#[repr(C)]
+pub struct Bracket {
+    pub tournament_id: [u8; 16],
+    pub round:         u8,
+    pub slot_a:        [u8; 16],   // player_id или нули
+    pub slot_b:        [u8; 16],
+    pub winner:        [u8; 16],   // нули пока не сыграно
+    pub match_id:      [u8; 16],   // ссылка на Match
+}
 ```
 
 ---
@@ -450,10 +497,23 @@ pub fn mood_multiplier(mood: u8) -> f32;
 pub fn xp_to_next(level: u32) -> u64;
 pub fn can_evolve(pet: &Pet) -> EvolutionCheck;
 
+// audit C2: расширенный API ухода + эволюции
+pub fn apply_xp(pet: &mut Pet, xp_gained: u64) -> LevelUpResult; // накапливает XP, повышает уровень
+pub fn apply_decay_since(pet: &mut Pet, now_unix: u64) -> CoreError; // офлайн-reconciliation: применяет decay с pet.last_sync до now
+pub fn set_sleeping(pet: &mut Pet, sleeping: bool, until_unix: u64);
+
 // Границу FFI пересекают только C-совместимые типы: код ошибки вместо Result,
 // флаг вместо Option. Внутри ядра можно пользоваться идиоматичным Rust.
 pub fn evolve(pet: &mut Pet, branch_hint: Branch, use_hint: bool) -> CoreError;
-pub fn apply_care_action(pet: &mut Pet, action: CareAction) -> CoreError;
+pub fn apply_care_action(pet: &mut Pet, action: CareAction, item_def_id: u32) -> CoreError;
+//   item_def_id: ссылка на предмет (еда/мыло/зелье) — таблица эффектов в economy.rs
+//   (audit C2: без item_id логика еды/расходников была не привязана)
+```
+
+#### CareAction enum (audit C2)
+```rust
+#[repr(u8)]
+pub enum CareAction { Feed, Clean, Play, Sleep, Cure, UseItem }
 ```
 
 ### 4.3. Dojo / Technique Card
@@ -465,6 +525,12 @@ pub fn rarity_from_quality(q: u8) -> Rarity;
 pub fn create_technique_card(
     m: &PunchMetrics, e: &HeartRateEvidence, owner: &[u8;16], ts: u64, rng: &mut Rng,
 ) -> TechniqueCard;
+
+// audit C2: helper-функции, используемые в quality_score (CORE_FORMULAS §2)
+pub fn norm_power(peak_accel_mps2: f32) -> f32;             // → [0, 1]
+pub fn combo_score(combo_len: u8) -> f32;                   // → [0, 1]
+pub fn heart_score(e: &HeartRateEvidence) -> f32;           // → [0, 0.70] или 0
+pub fn muscle_memory_bonus(repeat_count_of_type: u32) -> f32; // → [0, 0.15]
 ```
 
 ### 4.4. Бридинг
@@ -509,6 +575,33 @@ pub fn effective_power(loadout: &Loadout) -> u32;
 pub fn simulate_combat(match_: &Match, seed: u64) -> MatchResult;
 pub fn tech_card_bonus(card_type: TechniqueType, affinity: TechniqueType) -> f32;
 pub fn element_multiplier(attacker: Element, defender: Element) -> f32;
+
+// audit C2: недостающие функции из CORE_FORMULAS §5
+pub fn overlevel_penalty(level: u32) -> u32;
+pub fn defense_ratio(foc_stat: u32, gear_foc_bonus: i16) -> f32;
+pub fn starting_stamina(end_stat: u32) -> u32;
+pub fn stamina_regen(end_stat: u32) -> u32;
+pub fn rng_variance(rng: &mut Rng, lo: f32, hi: f32) -> f32;
+pub fn select_card_ai(my_state: &CombatantState, enemy_state: &CombatantState) -> u8; // index в Loadout.cards
+pub fn apply_active_effects(state: &mut CombatantState) -> Effect; // bleed tick, stun decrement
+```
+
+#### CombatantState (внутреннее состояние симуляции, audit C1)
+```rust
+#[repr(C)]
+pub struct CombatantState {
+    pub hp:            i32,
+    pub stamina:       i32,
+    pub active:        ActiveEffects,
+    pub signature_cd:  u8,    // раунды до готовности signature
+}
+
+#[repr(C)]
+pub struct ActiveEffects {
+    pub stun_rounds:   u8,
+    pub bleed_stacks:  u8,
+    pub slow_rounds:   u8,
+}
 ```
 
 ### 4.7. Экономика
@@ -586,21 +679,68 @@ pub enum CoreError {
 
 ---
 
-## 8. ПРИМЕР FFI (Rust → C header)
+## 8. ПРИМЕР FFI (Rust → C header) — с panic safety
+
+> ⚠️ **Аудит D4 (критично):** прежний пример `gochya_quality_score` не содержал `catch_unwind`, что прямо нарушает принцип §1.6 «Без паник в FFI». Паника через FFI крашит весь процесс (на часах = краш приложения). **Все** `extern "C"` обёртки обязаны оборачивать тело в `std::panic::catch_unwind`.
 
 ```rust
+use std::panic;
+
 #[no_mangle]
 pub extern "C" fn gochya_quality_score(
     metrics: *const PunchMetrics,
     heart: *const HeartRateEvidence,
 ) -> u8 {
-    let m = unsafe { &*metrics };
-    let e = unsafe { &*heart };
-    quality_score(m, e)
+    if metrics.is_null() || heart.is_null() {
+        return 0; // безопасный дефолт
+    }
+    let result = panic::catch_unwind(|| {
+        let m = unsafe { &*metrics };
+        let e = unsafe { &*heart };
+        quality_score(m, e)
+    });
+    match result {
+        Ok(score) => score,
+        Err(_) => {
+            // логируем в anticheat_events / crash reporter (через set_hook в lib init)
+            0 // безопасный дефолт при панике
+        }
+    }
 }
 ```
 
-`cbindgen` генерирует `gochya_core.h` → Swift/C# consume.
+### Инициализация (один раз при загрузке библиотеки)
+```rust
+#[no_mangle]
+pub extern "C" fn gochya_core_init() -> CoreError {
+    panic::set_hook(Box::new(|info| {
+        // отправить в crash reporter хоста (iOS: UIAlertController-free logging,
+        // Android: Log.e, server: tracing)
+        log_panic_to_host(&info.to_string());
+    }));
+    CoreError::Ok
+}
+```
+
+### Передача больших структур через out-параметр (audit D3/T4)
+Для `MatchResult` (~400+ байт) и других крупных возвратов — **не** возвращать by value (нестандартизированный ABI между ARM64/x86_64). Использовать out-буфер:
+```rust
+#[no_mangle]
+pub extern "C" fn gochya_simulate_combat(
+    match_: *const MatchC,
+    seed: u64,
+    out_result: *mut MatchResultC,    // вызывающий выделяет память
+) -> CoreError {
+    catch_unwind_wrapper(|| {
+        let m = unsafe { &*match_ };
+        let result = simulate_combat(m, seed);
+        unsafe { *out_result = result.to_c(); }
+        CoreError::Ok
+    })
+}
+```
+
+`cbindgen` генерирует `gochya_core.h` → Swift / JNI (Kotlin) consume. Для iOS символьный lookup через `DynamicLibrary.process()` (см. `CLIENT_COMPANION.md §6`).
 
 ---
 

@@ -53,19 +53,23 @@
 ## 5. TECHNIQUE CARD
 
 ```
+// Соответствует docs/04-core/CORE_SPEC.md §3.4 (аудит N2, N3)
 struct TechniqueCard {
-    id:           Uuid,
+    id:           [u8; 16],          // UUID, fixed-size для FFI
     type:         TechniqueType,     // Jab, Hook, Uppercut, Kick, Cross, Elbow, Block
     element:      Element,           // связано с геном питомца (см. BREEDING)
     rarity:       Rarity,            // Common..Mythic (по qualityScore)
     baseDamage:   f32,               // f(power, precision, level)
     speed:        f32,               // f(executionTime) — выше = ходит раньше
     staminaCost:  u16,               // f(power)
-    effect:       Option<Effect>,    // Stun/Bleed/Crit — из combo/rhythm
-    signature:    bool,              // если коронный — занимает ult-слот
-    ownerId:      PlayerId,          // привязка к стилю автора
-    created_at:   Timestamp,
+    effect:       Effect,            // плоская структура, FFI-safe (НЕ Option<Effect> — audit N3)
+    quality:      u8,                // 0..100
+    owner_id:     [u8; 16],          // привязка к стилю автора (snake_case — audit N2)
+    created_at:   u64,               // unix timestamp
 }
+// ВАЖНО: поле `signature` УБРАНО из карты (audit N2) — это свойство Loadout:
+//   Loadout.signature_idx: u8   // 0..4 — индекс карты в лоадауте, которая занимает ult-слот
+// Игрок назначает любую из 5 карт как signature, а не карта «сама по себе» коронная.
 ```
 
 ---
@@ -85,17 +89,19 @@ struct TechniqueCard {
 
 ## 7. ФОРМУЛЫ
 
-(см. также `docs/04-core/CORE_FORMULAS.md` — единственный источник истины)
+> ⚠️ **Единый источник истины — `docs/04-core/CORE_FORMULAS.md §2`.** Здесь приведены те же формулы; при расхождениях приоритет у CORE_FORMULAS.
 
 ```
-qualityScore   = 0.40·normPower + 0.25·precision + 0.12·comboScore + 0.08·rhythmScore + 0.15·heartScore
+qualityScore = 100 · (                              // ← множитель 100 обязателен (аудит N1)
+      0.40·normPower + 0.25·precision + 0.12·comboScore + 0.08·rhythmScore + 0.15·heartScore
+)                                                   // → диапазон 0..100
 baseDamage     = (peakAccel / 50) · precision · typeMultiplier · techLevel
 speed          = 100 / (1 + execTime_sec)
 staminaCost    = round(powerRating · 2.2)
 critChance     = clamp(0.02 + 0.01·comboLen + 0.05·(rhythmScore-0.5), 0, 0.35)
 ```
 
-`heartScore` — из пульс-гейта (см. `MECHANIC_HEART_GATE.md`).
+`heartScore` — из пульс-гейта (см. `MECHANIC_HEART_GATE.md`). Без множителя `100 ·` пороги `rarityFromQuality` сломаны.
 
 ---
 
@@ -128,12 +134,14 @@ critChance     = clamp(0.02 + 0.01·comboLen + 0.05·(rhythmScore-0.5), 0, 0.35)
 
 Серверный расчёт боя: клиент шлёт только ID выбранных карт — урон считает ядро на сервере. Подменить карту/статы нельзя.
 
-Валидация записи (см. `MECHANIC_HEART_GATE.md` и `ANTICHEAT.md`):
-- пульс-гейт (главный);
-- спектральная подпись реального удара;
-- гироскоп-сигнатура (вращение кисти);
-- энтропия сигнала;
-- rate-limit + replay-detection.
+Валидация записи (privacy-first, audit S1 — см. `ANTICHEAT.md §3`):
+- **heart gate** (главный, 60 баллов) — пульс доказывает, что часы на руке;
+- **replay-detection** с серверным nonce (15 баллов);
+- **клиентская энтропия** с проверкой диапазона на сервере (15 баллов);
+- **rate-limit** (10 баллов);
+- **вероятностный аудит типа удара** (post-factum, не блокирует).
+
+> ⚠️ **Чего НЕТ** (audit S1): серверной спектральной подписи, гироскоп-сигнатуры на сервере — физически невозможны без передачи сырого сигнала, что нарушает privacy-first принцип. Прежние версии этого списка упоминали их — они убраны.
 
 ---
 

@@ -31,7 +31,7 @@
 - ✅ Decay в реальном времени + night multiplier.
 - ✅ Weakness-стейт при neglect.
 - ✅ Уровни и XP (полином).
-- ✅ Эволюция: Egg → Baby → Teen → Adult (3 стадии).
+- ✅ Эволюция: Egg → Baby → Teen → Adult (**3 перехода, 4 стадии**; audit B11: Premium-стадия в фазе 2).
 - ✅ 1 эволюционная ветвь на стихию.
 
 ### Тренировки
@@ -82,8 +82,8 @@
 - ✅ Глобальный лидерборд.
 
 ### Платформы
-- ✅ Wear OS-клиент (Unity) — приоритет 1.
-- ✅ watchOS-клиент (натив) — приоритет 2 (можно в конце MVP / начале Beta).
+- ✅ Wear OS-клиент (**нативный Kotlin + Filament**) — приоритет 1 (audit S3: Unity заменён).
+- ✅ watchOS-клиент (**нативный Swift + SpriteKit**) — приоритет 2 (можно в конце MVP / начале Beta).
 - ✅ Companion (Flutter) — магазин, инвентарь, лидерборд, бридинг, родословная, Battle Pass.
 - ✅ Backend (Go + PostgreSQL + Redis).
 
@@ -146,8 +146,8 @@
 | Роль | Кол-во | Главные задачи |
 |---|---|---|
 | **Core Engineer** (Rust) | 1–2 | Ядро, формулы, FFI |
-| **watchOS Engineer** | 1 | SwiftUI, CoreMotion, HealthKit |
-| **Wear OS / Unity Engineer** | 1–2 | Unity, SensorManager, Samsung Health |
+| **watchOS Engineer** | 1 | SwiftUI, SpriteKit, CoreMotion, HealthKit |
+| **Wear OS Engineer** (Kotlin) | 1–2 | Kotlin, Filament, SensorManager, Samsung Health |
 | **Companion / Flutter** | 1 | Flutter, IAP, глубокие экраны |
 | **Backend Engineer** | 1–2 | Go, API, матчмейкинг, IAP-валидация |
 | **ML Engineer** (part-time) | 0.5 | DTW-классификатор ударов |
@@ -166,13 +166,20 @@
 - Финализация документации (✅ уже есть).
 - Прототип Shared Core: типы + базовые формулы + golden tests.
 - Архитектурные спайки: FFI под iOS и Android, hello-world сборка.
+
+**🚨 Критические gate'ы Sprint 0 (audit F5 — без них старт невозможен):**
+- **Gate 1: Wear OS натив-спайк.** На Galaxy Watch 6 запустить Filament + одну glTF-модель + прочитать accelerometer + HR. Замерить FPS, cold start, расход батареи за 16 сек Dojo-имитации. Если не получается 30 FPS / cold start ≤ 3 сек / ≤ 0.5% батареи за 16 сек — пересмотр Wear OS-стратегии.
+- **Gate 2: watchOS SpriteKit прототип.** На Apple Watch S9 запустить SpriteKit + одну Rive-анимацию. Замерить те же метрики.
+- **Gate 3: Samsung Health Sensor SDK partner application.** Подать заявку в partner program (audit R16 — single point of failure). Если через 4 недели нет одобрения — переключиться на `Sensor.TYPE_HEART_RATE` fallback (degraded, но не блокер MVP).
+- **Gate 4: ML-датасет старт.** Набор 5 бойцов-добровольцев, начало записи 1250 эталонов (см. `MECHANIC_ML_CLASSIFIER.md §3`).
+
 - Art-концепты существа и UI.
 - Backend: scaffolding, БД-схема, auth.
 
 ### Sprint 1–4 (нед 5–8): Core features
 - Shared Core: все формулы, breeding, combat, synergy.
 - watchOS: главный экран, питомец, уход, тренировки.
-- Wear OS: то же на Unity.
+- Wear OS: то же на нативном Kotlin/Filament.
 - Backend: профили, инвентарь, дуэль (end-to-end).
 
 ### Sprint 5–8 (нед 9–12): USP-механики

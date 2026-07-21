@@ -11,24 +11,24 @@
 | Язык | Swift 5.9+ |
 | UI | SwiftUI + WatchKit |
 | Минимальная версия | watchOS 10.0 |
-| Рендер существа | ⚠️ решение не принято — см. примечание ниже |
+| Рендер существа | **SpriteKit** (soft 3D / 2.5D, скелетная анимация) — решение аудита P5 |
+| Скелетная анимация | Spine / Rive → SpriteKit atlas |
 | Анимация UI | Lottie / Native SwiftUI |
 | Сенсоры | CoreMotion (`CMMotionManager`) — акселерометр и гироскоп |
 | Здоровье | HealthKit (`HKHealthStore`) |
-| Пульс realtime | `HKWorkoutSession` + `HKLiveWorkoutBuilder` |
+| Пульс realtime | `HKWorkoutSession` + `HKLiveWorkoutBuilder` (только так; см. §4.3 edge cases) |
 | Связь с iPhone | Watch Connectivity (`WCSession`) |
 | IAP | StoreKit 2 |
-| Core-интеграция | `.xcframework` через Swift bridge (FFI) |
+| Core-интеграция | `.xcframework` (iOS + watchOS slices) через Swift bridge (FFI) |
 | AOD | WidgetKit complications |
 
-> ⚠️ **Рендер существа — открытое решение.** SceneKit депрекирован Apple (2025), а RealityKit
-> на watchOS недоступен — то есть прямой замены для 3D нет. Варианты: остаться на SceneKit
-> с осознанным техдолгом, перейти на SpriteKit/Spine (2D-skeletal), либо кастомный Metal.
+> **Решение по рендеру (audit P5):** SpriteKit как основной путь.
+> SceneKit soft-deprecated (WWDC 2025), RealityKit на watchOS недоступен, Metal raw слишком
+> дорого для MVP. SpriteKit + параллакс + скелетная анимация (Spine/Rive) даёт именно тот
+> «soft 3D / 2.5D» look, который описан в `ART_BIBLE.md`. Премиально, не ретро.
 >
-> Выбор не косметический: он определяет арт-пайплайн. Принцип `ART_BIBLE.md` §10
-> «модель авторится один раз, экспорт под каждый рантайм» перестаёт работать, если
-> watchOS уходит в 2D, а Wear OS остаётся в 3D — это уже отмечено в `RISKS.md` R3.
-> Решение принять до старта арт-производства, иначе часть ассетов придётся переделывать.
+> Принцип `ART_BIBLE.md` §10 «модель авторится один раз» сохраняется: источник — Spine/Rive
+> sketal animation, экспорт под SpriteKit (watchOS), Filament (Wear OS), Rive (companion).
 
 ---
 
@@ -64,7 +64,7 @@ watchos/
 │   ├── OfflineCache.swift           ← локальное сохранение
 │   └── Notifications.swift          ← локальные пушы
 ├── Rendering/
-│   ├── PetScene.swift               ← SceneKit сцена
+│   ├── PetScene.swift               ← SpriteKit scene (soft 3D / 2.5D)
 │   ├── ParticleSystem.swift
 │   └── Shaders/
 └── Resources/
@@ -80,7 +80,7 @@ watchos/
 ```
         ╭────────────────────────╮
        │                          │
-      │      ┌──────────┐         │   ← SceneKit: питомец в центре
+      │      ┌──────────┐         │   ← SpriteKit: питомец в центре (soft 3D / 2.5D)
       │      │   PET    │         │      круглый экран, безопасные зоны
       │      │  (3D)    │         │
        │     └──────────┘        │
@@ -116,13 +116,21 @@ motion.startDeviceMotionUpdates(to: queue) { data, _ in
 }
 ```
 
-### 4.3. Пульс realtime
+### 4.3. Пульс realtime — HKWorkoutSession (с degraded mode)
 - **Обязательно** активная `HKWorkoutSession` (иначе пульс с задержкой 5–30 сек).
 - `HKLiveWorkoutBuilder` собирает HR-сэмплы.
 - См. `MECHANIC_HEART_GATE.md`.
 
+> ⚠️ **Edge cases (audit A5/B1):**
+> 1. **Одновременно только одна `HKWorkoutSession`.** Если у пользователя уже запущена тренировка (бег, вело, Apple Fitness+), GOCHYA **не сможет** запустить свою. Dojo должен проверить `HKHealthStore.biologicalSex()`/`workoutSession` состояние и в случае конфликта:
+>    - показать мягкое сообщение «Сначала заверши активную тренировку, чтобы записать приём»;
+>    - НЕ запускать вторую session (это невозможно);
+>    - предложить fallback: `/dojo/preflight` вернёт `degraded=true`, и запись пройдёт без realtime HR → `heartScore=0` (карта будет Common/Uncommon, но игрок не заблокирован).
+> 2. **Не вызывать `finishWorkout()`** — иначе сессия запишется в Health как тренировка, поднимет оранжевое Activity-кольцо и разозлит пользователя. Использовать `discardWorkout()` вместо `finishWorkout()` для отмены без сохранения.
+> 3. **Watch locked** — доставка HR может задерживаться при блокировке экрана. Держать экран активным во время Dojo (но dim для экономии батареи — см. `MECHANIC_HEART_GATE.md` §4).
+
 ### 4.4. Классификатор
-- **MVP:** DTW (Dynamic Time Warping) по 5 шаблонам — дёшево, объяснимо, без Core ML.
+- **MVP:** DTW (Dynamic Time Warping) по 5 шаблонам — см. `docs/02-mechanics/MECHANIC_ML_CLASSIFIER.md`.
 - **Фаза 2:** Core ML модель (`PunchClassifier.mlmodel`), обученная на размеченных записях.
 
 ---
@@ -131,7 +139,7 @@ motion.startDeviceMotionUpdates(to: queue) { data, _ in
 
 ### 5.1. Запросы доступа
 ```swift
-let types: Set = [
+let readTypes: Set<HKObjectType> = [
     HKQuantityType.quantityType(forIdentifier: .stepCount)!,
     HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)!,
     HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
@@ -139,7 +147,13 @@ let types: Set = [
     HKQuantityType.quantityType(forIdentifier: .heartRate)!,
     HKWorkoutType.workoutType(),
 ]
-healthStore.requestAuthorization(toShare: nil, read: types)
+// Write types (audit C7): НЕ nil — нам нужно писать калории/тренировки из Dojo
+let shareTypes: Set<HKSampleType> = [
+    HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
+    HKQuantityType.quantityType(forIdentifier: .appleExerciseTime)!,
+    HKWorkoutType.workoutType(),
+]
+healthStore.requestAuthorization(toShare: shareTypes, read: readTypes)
 ```
 
 ### 5.2. Стратегия чтения

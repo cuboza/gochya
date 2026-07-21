@@ -144,7 +144,7 @@ canBreed(a, b):
         && b.stage == Adult
         && a.level >= 30
         && b.level >= 30
-        && inbreedingCoeff(a, b) <= 3           // поколения
+        && inbreedingCoeff(a, b) <= 3           // audit B10: число общих предков в пределах 3 поколений (не «поколения» — это счётчик родства)
         && a.last_bred_at + 24h <= now
         && b.last_bred_at + 24h <= now
 ```
@@ -307,11 +307,14 @@ overlevelPenalty(level) = max(0, level - 50) * 5
 
 ### 5.2. Боевой раунд
 ```
-// в начале боя:
-hpA = 1000 + loadout_a.pet.stats.end * 10
-hpB = 1000 + loadout_b.pet.stats.end * 10
+// в начале боя (audit N6: gear_end_bonus учитывается):
+hpA = 1000 + loadout_a.pet.stats.end * 10 + loadout_a.gear.end_bonus * 10
+hpB = 1000 + loadout_b.pet.stats.end * 10 + loadout_b.gear.end_bonus * 10
 
-// каждый раунд обе стороны выбирают карту (по AI-эвристике):
+// AI выбора карт (см. §5.2-extended ниже) — детерминированный, без RNG в выборе
+card_a = selectCardAI(stateA, stateB)
+card_b = selectCardAI(stateB, stateA)
+
 initiativeA = loadout_a.pet.stats.agi + card_a.speed
 initiativeB = loadout_b.pet.stats.agi + card_b.speed
 attacker = initiativeA > initiativeB ? A : B   // при равенстве — rng
@@ -321,12 +324,52 @@ damage = baseDamage
     * (1 + techCardBonus(card.type, attacker.genome.tech_affinity))
     * moodMultiplier(attacker.mood)
     * rngVariance(rng, [0.9, 1.1])
-    * (1 - defender.defense_from_stats)
+    * (1 - defenseRatio(defender))   // audit N6: единое имя defenseRatio
 
 if rng < critChance: damage *= 1.8
 defender.hp -= damage
 
-apply effect (stun/bleed/etc.)
+apply effect (stun/bleed/etc.) — persist статусов между раундами (см. §5.2-extended)
+```
+
+#### defenseRatio (audit B3)
+```
+defenseRatio(combatant) = min(FOC / 1000, 0.5) + gear.foc_bonus / 1000   // кап 0.5
+```
+
+### 5.2-extended. AI выбора карт (audit C1) — критично для детерминизма
+
+Алгоритм `selectCardAI(myState, enemyState)`:
+- **Эвристика по ожидаемому урону** (greedy), детерминированная — без RNG в выборе:
+  ```
+  for each available card c in myLoadout.cards:
+      if stamina < c.staminaCost: skip (или пометить как "halfDamage")
+      if c is signature AND signatureOnCooldown: skip
+      expectedDamage = c.baseDamage
+          * elementMultiplier(myElement, enemyElement)
+          * (1 + techCardBonus(c.type, myGenome.tech_affinity))
+          * (1 - defenseRatio(enemyState))
+          * 0.5   // half-damage if stamina < cost
+      // бонус за добивание:
+      if expectedDamage >= enemyState.hp: expectedDamage *= 1.5   // приоритет lethal
+      score[c] = expectedDamage / c.staminaCost   // эффективность
+  return argmax(score)
+  ```
+- **Signature-карта кулдаун:** `SIGNATURE_COOLDOWN_ROUNDS = 5` (зафиксировано для MVP). После применения signature недоступна 5 раундов.
+- **Stamina:** `startingStamina = 100 + END / 5`, `staminaRegen = 5 + END / 50` за раунд.
+- **Persist статус-эффектов** между раундами (состояние боя, не в `MatchResult` для observer'а — но сервер хранит для replay):
+  ```
+  ActiveEffects {
+      stun_rounds: u8,    // сколько раундов пропускает
+      bleed_stacks: u8,   // урон за стек каждый раунд
+      slow_rounds: u8,
+  }
+  // Stun: combatant пропускает ход, stun_rounds -= 1
+  // Bleed: combatant теряет bleed_stacks * BLEED_DAMAGE_PER_STACK HP, stacks не растут
+  ```
+- **Поле stamina** живёт в боевом состоянии (не в `Loadout`/`Match` — это runtime-состояние симуляции).
+
+> Без этого раздела `simulate_combat(match, seed)` нереализуем воспроизводимо, а на нём держится anti-cheat и golden tests.
 ```
 
 ### 5.3. Element multiplier (камень-ножницы-бумага)
@@ -382,13 +425,27 @@ PITY:
     epic_pity_threshold = 50    // после 50 — гарантия Epic+
 ```
 
-### 6.3. Цены (пример, корректируется в BALANCE.md)
+### 6.3. Цены (синхронизировано с BALANCE.md §7)
 ```
 PULL_COST_GEMS         = 100
-PULL_COST_GEMS_10x     = 900 (скидка)
+PULL_COST_GEMS_10X     = 900       // −10% (audit B4)
+PULL_COST_GEMS_30X     = 2500      // −17% (audit B4: было пропущено)
 EGG_INCUBATE_SKIP_GEMS = 50
-BREED_COST_KOINS       = 500
-BREED_LOVE_CRYSTAL     = 1
+BREED_COST_KOINS       = 500       // операция скрещивания (audit B3: не путать с ценой предмета)
+BREED_LOVE_CRYSTAL     = 1         // требуется ПОМИМО 500 Koins
+LOVE_CRYSTAL_PRICE     = 200       // цена покупки ПРЕДМЕТА в магазине (Koins)
+MUTATION_CATALYST_PRICE= 50        // Gems
+HYBRID_CATALYST_PRICE  = 100       // Gems (audit B7)
+INCUBATE_SKIP_PRICE    = 50        // Gems
+```
+
+### 6.3b. Шанс гибрида (обновлено audit B7)
+```
+hybridChance(differentElement, hybridCatalyst):
+    if not differentElement: return 0
+    base = 0.20
+    bonus = hybridCatalyst ? 0.15 : 0   // абсолютный бонус
+    return clamp(base + bonus, 0, 0.50)  // кап 50%
 ```
 
 ### 6.4. ELO / лиги

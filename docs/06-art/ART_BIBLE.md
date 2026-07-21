@@ -74,19 +74,26 @@
 | Text primary | `#FFFFFF` | текст на тёмном |
 | Text muted | `#9B9DB8` | подписи |
 
-### 3.2. Стихии
-| Стихия | Hex |
-|---|---|
-| Fire | `#FF6B35` |
-| Water | `#4ECDC4` |
-| Earth | `#C9A66B` |
-| Air | `#B8E1FF` |
-| Light | `#FFE66D` |
-| Dark | `#6B5B95` |
-| Arcane | `#C77DFF` |
-| Steam | `#E8E8E8` |
-| Magma | `#FF4500` |
-| Storm | `#5C7AEA` |
+### 3.2. Стихии (audit B10: добавлены все 10 гибридов; Air/Light/Dark и их гибриды — фаза 2)
+| Стихия | Hex | MVP |
+|---|---|---|
+| Fire | `#FF6B35` | ✅ |
+| Water | `#4ECDC4` | ✅ |
+| Earth | `#C9A66B` | ✅ |
+| Air | `#B8E1FF` | ❌ [фаза 2] |
+| Light | `#FFE66D` | ❌ [фаза 2] |
+| Dark | `#6B5B95` | ❌ [фаза 2] |
+| Arcane | `#C77DFF` | ❌ [фаза 2] |
+| **Steam** (Fire+Water) | `#E8E8E8` | ✅ |
+| **Magma** (Fire+Earth) | `#FF4500` | ✅ |
+| **Mud** (Earth+Water) | `#6B4226` | ✅ |
+| **Storm** (Air+Water) | `#5C7AEA` | ❌ [фаза 2] |
+| **Smoke** (Fire+Air) | `#9E9E9E` | ❌ [фаза 2] |
+| **Sand** (Earth+Air) | `#E6D5A8` | ❌ [фаза 2] |
+| **Eclipse** (Light+Dark) | `#2D1B4E` | ❌ [фаза 2] |
+| **Inferno** (Fire+Dark) | `#8B0000` | ❌ [фаза 2] |
+| **Prism** (Water+Light) | `#F0F8FF` | ❌ [фаза 2] |
+| **Crystal** (Earth+Light) | `#B8E6D2` | ❌ [фаза 2] |
 
 ### 3.3. Редкости (рамки, свечения)
 | Редкость | Цвет рамки | Свечение |
@@ -211,20 +218,21 @@
 
 ---
 
-## 10. АРТ-ПАЙПЛАЙН ПОД 3 РАНТАЙМА
+## 10. АРТ-ПАЙПЛАЙН ПОД 3 РАНТАЙМА (audit A1/A4 — обновлено)
+
+> **Решение:** для soft-3D / 2.5D look используем **скелетную анимацию** (Spine/Rive) как единый источник. SceneKit deprecated, Unity убран с Wear OS.
 
 | Этап | Инструмент | Выход |
 |---|---|---|
 | Концепт | Procreate / Photoshop | арт-дирекшн |
-| 3D-модель | Blender | `.blend`, low-poly + bake |
-| 3D → watchOS | Blender → SceneKit `.scn` | `.scn` файл |
-| 3D → Unity (Wear OS) | Blender → FBX/glTF → Unity prefab | `.prefab` + ASTC textures |
-| 3D → companion (Flutter) | рендер в спрайт-атлас ИЛИ Rive для UI | png/webp |
-| 2D-skeletal (fallback) | Spine / Rive | `.json` + atlas |
+| **Скелетная анимация (источник)** | **Rive** (или Spine) | `.riv` / `.json` + atlas |
+| 2D → **watchOS** | Rive → SpriteKit atlas | SpriteKit scene + action sequences |
+| 3D-lowpoly → **Wear OS** | Blender → glTF 2.0 | `.glb` (Filament native) + ASTC textures |
+| 2D → companion (Flutter) | Rive (нативно) | `.riv` |
 | UI-анимации | Lottie / Rive | `.json` / `.riv` |
 | Иконки | Figma / Illustrator | SVG → PNG @1x/2x/3x |
 
-**Принцип:** модель авторится ОДИН РАЗ, экспорт под каждый рантайм.
+**Принцип:** скелетная анимация (Rive) авторится ОДИН РАЗ, экспорт под каждый рантайм. Для Wear OS при необходимости 3D — отдельная low-poly glTF-модель (не тот же ассет, что Rive). Приоритет — единый Rive-pipeline для всех платформ, 3D только там, где даёт заметный visual win.
 
 ---
 

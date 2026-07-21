@@ -113,7 +113,7 @@ Pre-Prod (4 нед) → MVP (16 нед) → Alpha (4 нед) → Beta (6 нед)
 
 | Когда | Что |
 |---|---|
-| Soft Launch | Wear OS (Unity) + companion + backend |
+| Soft Launch | Wear OS (нативный Kotlin) + companion + backend |
 | Beta+ | watchOS (натив) |
 | Q2 post-launch | Оптимизация для старших Apple Watch (SE2 compatibility) |
 | Q3 post-launch | Galaxy Watch 3 / Tizen — оценить demand (опционально) |

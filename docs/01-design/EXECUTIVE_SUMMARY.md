@@ -9,8 +9,8 @@
 **GOCHYA** — кроссплатформенная игра-виртуальный питомец для носимых устройств. Твоё существо живёт на запястье, реагирует на реальные действия и дерётся в твоём личном стиле.
 
 **Платформы:**
-- **Samsung Galaxy Watch 4/5/6/7/Ultra** (Wear OS) — клиент на Unity
-- **Apple Watch Series 6+/SE2/Ultra** (watchOS 10+) — нативный клиент (SwiftUI/SceneKit)
+- **Samsung Galaxy Watch 4/5/6/7/Ultra** (Wear OS) — клиент на **нативном Kotlin + Filament** (audit S3: Unity заменён как не имеющий официальной поддержки Wear OS)
+- **Apple Watch Series 6+/SE2/Ultra** (watchOS 10+) — нативный клиент (SwiftUI/**SpriteKit**)
 - **Companion-апп на телефон** (iOS + Android, Flutter) — ОБЯЗАТЕЛЕН для сложных экранов
 
 **Жанр:** Virtual Pet + Caregiver Sim + Auto-battler PvP + Collection.
@@ -117,7 +117,7 @@
 
 1. **Батарея/производительность на двух рантаймах** — mitigation: перф-бюджеты, профилирование.
 2. **Античит в PvP и в записи ударов** — mitigation: server-authority + пульс-гейт.
-3. **Двойная клиентская разработка (Unity + SwiftUI)** — mitigation: максимум логики в ядре.
+3. ~~Двойная клиентская разработка (Unity + SwiftUI)~~ → **РЕШЕНО**: оба клиента нативные (Swift/Kotlin), логика в Shared Core. Новый топ-риск: **Samsung Health partner approval** (см. `RISKS.md` R16).
 4. **Ретеншн после новизны тамагочи** — mitigation: контент-план сезонов, бридинг как долгая цель.
 5. **Соответствие политике сторов и privacy (COPPA/GDPR-K)** — mitigation: юридический ревью на старте.
 
