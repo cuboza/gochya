@@ -20,7 +20,7 @@
 |---|---|---|
 | **Шагомер** | daily steps | базовая «жизненная энергия», рост XP |
 | **Сон** | длительность + качество | восстановление выносливости, настроение, реген |
-| **Тренировки** | тип (бег/вело/силовая/плавание/йога) | целевые статы (END/STR/AGI/INT) |
+| **Тренировки** | тип (бег/вело/силовая/плавание/йога) | целевые статы (END/STR/AGI/FOC) |
 | **Пульс** | средний/зоны/пиковый | «боевой дух», бонус к тренировкам |
 | **Активные калории** | сгоревшие за день | валюта Vitality |
 | **Стресс** (Samsung Health / Apple Health) | уровень | анти-бустер: высокий стресс → питомец нервничает |
@@ -61,15 +61,19 @@
 stepsNorm      = clamp(steps / dailyGoal.steps, 0, 1.5)
 sleepNorm      = clamp(sleepHours / dailyGoal.sleep, 0, 1.3)
 activeCalsNorm = clamp(activeCals / dailyGoal.cals, 0, 1.5)
-workoutBonus   = workouts_today × 0.3
+workoutBonus   = min(workouts_today, MAX_WORKOUTS_FOR_GAIN) × 0.3   // кэп 3, см. §9.3
 
-vitality = 100 · (
+base     = 100 · (
       0.40 · stepsNorm
     + 0.25 · activeCalsNorm
     + 0.20 · sleepNorm            // да, сон — это ресурс
     + 0.15 · workoutBonus
 )
+vitality = clamp(base × synergyMultiplier(streak_days), 0, 150)
 ```
+
+> Формула приведена для контекста. **Источник истины — `CORE_FORMULAS.md` §4.3**;
+> при расхождении правится он, а здесь обновляется ссылка.
 
 - **Cap на день:** 150 Vitality (нельзя «отработать» месяц вперёд).
 - Vitality тратится на: ускоренный рост, покупки расходников, бустеры тренировок питомца, открытие яиц.

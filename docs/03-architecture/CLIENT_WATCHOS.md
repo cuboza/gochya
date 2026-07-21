@@ -11,15 +11,24 @@
 | Язык | Swift 5.9+ |
 | UI | SwiftUI + WatchKit |
 | Минимальная версия | watchOS 10.0 |
-| Рендер существа | SceneKit (low-poly PBR) или SpriteKit (2D-skeletal) |
+| Рендер существа | ⚠️ решение не принято — см. примечание ниже |
 | Анимация UI | Lottie / Native SwiftUI |
-| Сенсоры | CoreMotion (`CMMotionManager`, `CMHeartRateData`) |
+| Сенсоры | CoreMotion (`CMMotionManager`) — акселерометр и гироскоп |
 | Здоровье | HealthKit (`HKHealthStore`) |
 | Пульс realtime | `HKWorkoutSession` + `HKLiveWorkoutBuilder` |
 | Связь с iPhone | Watch Connectivity (`WCSession`) |
 | IAP | StoreKit 2 |
 | Core-интеграция | `.xcframework` через Swift bridge (FFI) |
 | AOD | WidgetKit complications |
+
+> ⚠️ **Рендер существа — открытое решение.** SceneKit депрекирован Apple (2025), а RealityKit
+> на watchOS недоступен — то есть прямой замены для 3D нет. Варианты: остаться на SceneKit
+> с осознанным техдолгом, перейти на SpriteKit/Spine (2D-skeletal), либо кастомный Metal.
+>
+> Выбор не косметический: он определяет арт-пайплайн. Принцип `ART_BIBLE.md` §10
+> «модель авторится один раз, экспорт под каждый рантайм» перестаёт работать, если
+> watchOS уходит в 2D, а Wear OS остаётся в 3D — это уже отмечено в `RISKS.md` R3.
+> Решение принять до старта арт-производства, иначе часть ассетов придётся переделывать.
 
 ---
 

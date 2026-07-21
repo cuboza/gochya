@@ -66,12 +66,12 @@
 
 | Параметр | Galaxy Watch (Wear OS) | Apple Watch (watchOS) |
 |---|---|---|
-| Форма экрана | круглый 1.2–1.5″, ~450–480px | прямоугольный, до 484×396 (49мм) |
-| RAM | ~1.5 ГБ | ~1 ГБ |
-| Батарея | 282–590 мАч | ~308–762 мАч |
+| Форма экрана | круглый 1.2–1.5″, ~450–480px | прямоугольный: 396×484 (45мм), 410×502 (49мм Ultra) |
+| RAM | ~1.5 ГБ | ~1–1.5 ГБ |
+| Батарея | 282–590 мАч | ~308–564 мАч (максимум — Ultra 2) |
 | Ввод | тач, rotating bezel, кнопка, Bixby | тач, Digital Crown, кнопка, Siri |
 | Акселерометр | `SensorManager` TYPE_ACCELEROMETER | `CMMotionManager` |
-| Пульс realtime | Samsung Health Sensors API (~1 Гц) | `HKWorkoutSession` (realtime) |
+| Пульс realtime | Samsung Health Sensors API (~1 Гц) | `HKWorkoutSession` + `HKLiveWorkoutBuilder` (только так) |
 | Здоровье | Samsung Health SDK, Health Services | HealthKit |
 | IAP | Galaxy Store IAP, Google Play Billing | StoreKit 2 |
 | Рантайм | **Unity** (LTS) + native plugin (Core) | **натив** SwiftUI + WatchKit + SceneKit + Core plugin |

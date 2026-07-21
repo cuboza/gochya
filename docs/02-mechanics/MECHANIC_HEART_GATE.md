@@ -92,7 +92,7 @@ heartScore  = heartGate ? (0.5 + spiritBonus) : 0   // 0.5..0.70
 
 | Платформа | API пульса | Замечание |
 |---|---|---|
-| **watchOS** | `HKHeartRateSensorLocation.wrist` + `HKWorkoutConfiguration` (или `CMHeartRateData` для realtime) | Realtime лучше через WorkoutSession |
+| **watchOS** | `HKWorkoutSession` + `HKLiveWorkoutBuilder`, тип `HKQuantityTypeIdentifier.heartRate` | Единственный путь к realtime-пульсу. CoreMotion пульс **не отдаёт** |
 | **Wear OS** | `Sensor.TYPE_HEART_RATE` (Samsung Health Sensors API для низкого latency) | Требует `BODY_SENSORS` permission |
 | **Shared Core** | Принимает уже посчитанные 4 метрики → вердикт и бонусы | Единая формула на всех платформах |
 

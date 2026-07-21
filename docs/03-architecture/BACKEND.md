@@ -94,6 +94,9 @@ CREATE TABLE players (
     auth_method     TEXT NOT NULL,  -- apple | samsung | google
     auth_subject    TEXT NOT NULL,
     timezone        TEXT,
+    -- Стрик активности: аргумент compute_vitality(), хранить было негде
+    streak_days     INT NOT NULL DEFAULT 0,
+    streak_last_day DATE,                -- для определения разрыва стрика
     UNIQUE(auth_method, auth_subject)
 );
 
@@ -103,7 +106,7 @@ CREATE TABLE pets (
     owner_id        UUID NOT NULL REFERENCES players(id),
     genome          JSONB NOT NULL,      -- сериализованный Genome из core
     name            TEXT,
-    stage           TEXT NOT NULL,       -- egg | baby | teen | adult
+    stage           TEXT NOT NULL,       -- egg | baby | teen | adult | premium
     level           INT NOT NULL DEFAULT 1,
     xp              BIGINT NOT NULL DEFAULT 0,
     needs           JSONB NOT NULL,      -- hunger, energy, hygiene, mood
@@ -112,7 +115,11 @@ CREATE TABLE pets (
     is_active       BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     parent_a_id     UUID REFERENCES pets(id),
-    parent_b_id     UUID REFERENCES pets(id)
+    parent_b_id     UUID REFERENCES pets(id),
+    -- Поля, которых требуют формулы ядра (CORE_FORMULAS §1.6, §3.1):
+    last_bred_at        TIMESTAMPTZ,     -- кулдаун бридинга 24ч; NULL = не скрещивался
+    needs_zero_since    TIMESTAMPTZ,     -- начало «нуля» потребности; Weakness через 6ч
+    is_weak             BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE INDEX idx_pets_owner ON pets(owner_id);
 
@@ -136,7 +143,9 @@ CREATE TABLE inventory_items (
     acquired_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Экономика / валюты
+-- Экономика / валюты.
+-- ВАЖНО: это ПРОЕКЦИЯ (кэш) поверх ledger'а, а не источник истины.
+-- Прямой UPDATE запрещён — только через ledger.apply(), см. ANTICHEAT.md §6.
 CREATE TABLE player_wallet (
     player_id       UUID PRIMARY KEY REFERENCES players(id),
     koins           BIGINT NOT NULL DEFAULT 0,
@@ -145,6 +154,26 @@ CREATE TABLE player_wallet (
     crowns          INT NOT NULL DEFAULT 0,
     vitality_date   DATE NOT NULL
 );
+
+-- Double-entry ledger — ИСТОЧНИК ИСТИНЫ для всех валют.
+-- Требование ANTICHEAT.md §6.1: «никогда не делаем wallet.koins += X напрямую».
+-- Без этой таблицы проверка sum(transactions) == wallet невыполнима.
+CREATE TABLE transactions (
+    id              BIGSERIAL PRIMARY KEY,
+    player_id       UUID NOT NULL REFERENCES players(id),
+    currency        TEXT NOT NULL,        -- koins | gems | vitality | crowns
+    amount          BIGINT NOT NULL,      -- знаковая: + начисление, − списание
+    reason          TEXT NOT NULL,        -- duel_win | iap | gacha_pull | breed_cost | ...
+    ref_id          TEXT,                 -- match_id / transaction_id стора / item_id
+    idempotency_key TEXT NOT NULL,        -- защита от двойного начисления
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(player_id, idempotency_key)
+);
+CREATE INDEX idx_tx_player_currency ON transactions(player_id, currency);
+
+-- Инвариант (cron-проверка из ANTICHEAT.md §6.2):
+--   SELECT player_id, currency, SUM(amount) FROM transactions GROUP BY 1,2
+--   должно совпадать с соответствующим полем player_wallet.
 
 -- Матчи / бои
 CREATE TABLE matches (
@@ -187,11 +216,70 @@ CREATE TABLE seasons (
 CREATE TABLE daily_activity (
     player_id       UUID NOT NULL REFERENCES players(id),
     date            DATE NOT NULL,
-    snapshot        JSONB NOT NULL,      -- DailyActivitySnapshot
-    vitality_awarded INT NOT NULL DEFAULT 0,
+    snapshot        JSONB NOT NULL,      -- DailyActivitySnapshot (последний за день)
+    vitality_awarded INT NOT NULL DEFAULT 0,   -- сколько УЖЕ начислено за этот день
     stat_gains      JSONB NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (player_id, date)
 );
+
+-- Яйца (эндпоинты GET /me/eggs, POST /me/eggs/:id/hatch существовали без таблицы)
+CREATE TABLE eggs (
+    id              UUID PRIMARY KEY,
+    owner_id        UUID NOT NULL REFERENCES players(id),
+    genome          JSONB NOT NULL,      -- EggGenome из core
+    parent_a_id     UUID REFERENCES pets(id),
+    parent_b_id     UUID REFERENCES pets(id),
+    incubate_until  TIMESTAMPTZ NOT NULL,
+    hatched_at      TIMESTAMPTZ,         -- NULL = ещё в инкубаторе
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_eggs_owner ON eggs(owner_id) WHERE hatched_at IS NULL;
+
+-- Друзья (в MVP-скоупе, таблицы не было)
+CREATE TABLE friendships (
+    player_id       UUID NOT NULL REFERENCES players(id),
+    friend_id       UUID NOT NULL REFERENCES players(id),
+    status          TEXT NOT NULL,       -- pending | accepted | blocked
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (player_id, friend_id),
+    CHECK (player_id <> friend_id)
+);
+
+-- Счётчики pity (pity_progress(&PlayerPulls) не имел хранилища)
+CREATE TABLE gacha_pity (
+    player_id       UUID NOT NULL REFERENCES players(id),
+    banner_kind     TEXT NOT NULL,       -- standard | premium
+    since_rare      INT NOT NULL DEFAULT 0,
+    since_epic      INT NOT NULL DEFAULT 0,
+    total_pulls     INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (player_id, banner_kind)
+);
+
+-- Battle Pass
+CREATE TABLE battle_pass_progress (
+    player_id       UUID NOT NULL REFERENCES players(id),
+    season_id       INT NOT NULL REFERENCES seasons(id),
+    level           INT NOT NULL DEFAULT 0,
+    xp              INT NOT NULL DEFAULT 0,
+    is_premium      BOOLEAN NOT NULL DEFAULT FALSE,
+    claimed_levels  INT[] NOT NULL DEFAULT '{}',
+    PRIMARY KEY (player_id, season_id)
+);
+
+-- Дневные / недельные задания
+CREATE TABLE quests (
+    id              UUID PRIMARY KEY,
+    player_id       UUID NOT NULL REFERENCES players(id),
+    quest_def_id    TEXT NOT NULL,
+    period          TEXT NOT NULL,       -- daily | weekly | season
+    progress        INT NOT NULL DEFAULT 0,
+    target          INT NOT NULL,
+    completed_at    TIMESTAMPTZ,
+    claimed_at      TIMESTAMPTZ,
+    expires_at      TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX idx_quests_player_active ON quests(player_id) WHERE claimed_at IS NULL;
 
 -- Логи античита (для расследований)
 CREATE TABLE anticheat_events (
@@ -286,6 +374,23 @@ GET    /me/season-progress                               → SeasonProgress
 POST   /sync/activity         { snapshot, deviceSig }    → { vitality, statGains }
 GET    /me/activity/week                                → DailyActivity[]
 ```
+
+> **Идемпотентность — обязательна.** Клиент синхронизируется раз в час, и снапшот за день
+> приходит многократно с растущими значениями. Начислять `compute_vitality(snapshot)`
+> при каждом вызове нельзя: игрок получит валюту заново на каждом sync'е.
+>
+> Протокол начисления (в одной транзакции):
+> ```
+> total := compute_vitality(snapshot, goals, streak_days)   -- пересчёт за ВЕСЬ день
+> delta := max(0, total - daily_activity.vitality_awarded)  -- начисляем только прирост
+> if delta > 0:
+>     ledger.apply(player, 'vitality', +delta,
+>                  idempotency_key = 'vitality:' || player_id || ':' || date || ':' || total)
+>     daily_activity.vitality_awarded := total
+> ```
+> `delta` не может быть отрицательной: при коррекции данных здоровья вниз ранее
+> начисленное **не отзывается** (иначе у игрока пропадает уже потраченная валюта).
+> Дневной кэп обеспечивает `compute_vitality`, а не эндпоинт.
 
 ### Tournaments
 ```

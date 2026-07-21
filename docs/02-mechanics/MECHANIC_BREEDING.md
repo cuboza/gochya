@@ -17,7 +17,7 @@
 ```
 struct Genome {
     visual:       VisualGenes,        // bodyShape, paletteHue, paletteSat, pattern, size, eyeStyle, aura
-    stats:        StatPotentials,     // STR_pot, AGI_pot, END_pot, INT_pot (скрытые потенциалы)
+    stats:        StatPotentials,     // STR_pot, AGI_pot, END_pot, FOC_pot (скрытые потенциалы)
     element:      Element,            // Fire | Water | Earth | Air | Light | Dark | Arcane
     tech_affinity: TechniqueType,     // СВЯЗЬ С МЕХАНИКОЙ ЗАПИСИ УДАРОВ
     rarity:       Rarity,             // Common..Mythic — влияет на потолок и мутации

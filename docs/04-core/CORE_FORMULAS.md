@@ -34,8 +34,12 @@ allStatGains *= moodMultiplier
 ### 1.4. XP curve
 ```
 xpToNext(level) = floor(80 * level^1.5)
-// Lv1→2: 80, Lv5→6: 894, Lv10→11: 2530, Lv20→21: 7155, Lv30→31: 13145
+// Lv1→2: 80, Lv5→6: 894, Lv10→11: 2529, Lv20→21: 7155, Lv30→31: 13145
 ```
+> ⚠️ **Кривая XP пока не согласована с таблицей прогрессии** `BALANCE.md` §9.
+> Обратный расчёт по этой формуле требует немонотонного темпа 702 → 9 963 → 2 050 XP/день,
+> а таблицы «действие → XP» в документации не существует. До её появления
+> `BALANCE.md` §9 — это пожелание, а не спецификация. См. план исправления, B3.
 
 ### 1.5. Эволюция
 ```
@@ -230,14 +234,20 @@ workoutBonus   = min(workoutCount, 3) * 0.3
 
 ### 4.3. Vitality (главная «здоровая» валюта)
 ```
-vitality = 100 * (
+base = 100 * (
       0.40 * stepsNorm
     + 0.25 * activeCalsNorm
     + 0.20 * sleepNorm
     + 0.15 * workoutBonus
 )
-vitality = clamp(vitality, 0, 150) * synergyMultiplier(streak_days)
+vitality = clamp(base * synergyMultiplier(streak_days), 0, MAX_VITALITY_PER_DAY)
 ```
+> **Порядок операций критичен.** Clamp применяется **после** умножения на стрик, иначе инвариант
+> `CORE_SPEC.md` §5.7 (`compute_vitality ∈ [0, 150]`) нарушается: максимум базы = 137,
+> после ×1.5 = 205.5. При правильном порядке: без стрика потолок 137 (кэп не связывает),
+> со стриком 30 дней — ровно 150. Средний игрок (нормы 0.9/0.9/0.9, 1 тренировка)
+> со стриком получает 121.5 — то есть стрик ценен для обычного игрока, а не только
+> для экстремальной активности.
 
 ### 4.4. Pet Vitals (статы напрямую от активности)
 ```
@@ -283,12 +293,17 @@ MAX_WORKOUTS_FOR_GAIN = 3   // 4-я и далее тренировка не да
 ```
 effectivePower(loadout) =
       sum(loadout.pet.stats) * 10
-    + sum(card.baseDamage * card.rarityWeight for card in loadout.cards)
+    + sum(card.baseDamage * RARITY_STAT_MULT[card.rarity] for card in loadout.cards)
     + sum(loadout.gear.bonuses) * 5
     - overlevelPenalty(loadout.pet.level)
 
 overlevelPenalty(level) = max(0, level - 50) * 5
 ```
+> ⚠️ **`RARITY_STAT_MULT` (1.0…2.5), не `GACHA_WEIGHTS`.** Это две разные таблицы в
+> `BALANCE.md` §5, и их нельзя путать. `GACHA_WEIGHTS` (Common=100 … Mythic=1) — веса
+> **выпадения** в гаче; подстановка их сюда делает колоду из 5 Common в 40 раз «сильнее»
+> колоды из 5 Mythic и инвертирует матчмейкинг, на котором держится обещание
+> «платное снаряжение не даёт преимущества».
 
 ### 5.2. Боевой раунд
 ```

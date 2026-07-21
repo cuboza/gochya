@@ -75,7 +75,7 @@ gochya/
 │   └── ffi/                             ← биндинги
 │       ├── swift/                       ← .xcframework для watchOS
 │       ├── csharp/                      ← P/Invoke для Unity
-│       ├── jni/                         ← JNI для Flutter
+│       ├── dart_ffi/                    ← dart:ffi для Flutter (НЕ JNI)
 │       └── wasm/                        ← для сервера (если нужен)
 ├── clients/
 │   ├── watchos/                         ← Xcode project (Swift)

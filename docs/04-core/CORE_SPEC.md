@@ -34,31 +34,57 @@
 ## 3. ОСНОВНЫЕ ТИПЫ
 
 ### 3.1. Базовые enum'ы
+
+> **Правило записи.** В Rust дискриминант задаётся атрибутом `#[repr(u8)]`, а не
+> синтаксисом `enum X: u8` (это C#/Swift). Для FFI используется `#[repr(u8)]` на
+> data-less enum'ах и `#[repr(C)]` на структурах.
+
 ```rust
-#[repr(C)]
-pub enum Element: u8 {
-    Fire, Water, Earth, Air,
-    Light, Dark, Arcane,
-    // Гибриды:
-    Steam, Magma, Storm, ...
+#[repr(u8)]
+pub enum Element {
+    Fire = 0, Water = 1, Earth = 2, Air = 3,
+    Light = 4, Dark = 5, Arcane = 6,
+    // Гибриды (см. HYBRID_TABLE в BALANCE.md §2):
+    Steam = 7, Magma = 8, Storm = 9, Mud = 10, Smoke = 11,
+    Sand = 12, Eclipse = 13, Inferno = 14, Prism = 15, Crystal = 16,
+}
+
+#[repr(u8)]
+pub enum Rarity {
+    Common = 0, Uncommon = 1, Rare = 2, Epic = 3, Legendary = 4, Mythic = 5,
+}
+
+#[repr(u8)]
+pub enum TechniqueType {
+    Jab = 0, Hook = 1, Uppercut = 2, Cross = 3, Kick = 4, Elbow = 5, Block = 6,
+}
+
+#[repr(u8)]
+pub enum Stat { Str = 0, Agi = 1, End = 2, Foc = 3 }
+
+#[repr(u8)]
+pub enum Stage { Egg = 0, Baby = 1, Teen = 2, Adult = 3, Premium = 4 }
+
+#[repr(u8)]
+pub enum Branch { Brute = 0, Adept = 1, Sage = 2 }
+```
+
+**`Effect` — плоская форма вместо enum с payload.** Rust-enum с данными
+(`Stun(u8)`, `Crit(f32)`) **не является FFI-safe** и не может лежать внутри
+`#[repr(C)]`-структур, которые маршалятся в Swift/C#/Dart. Поэтому тег и значение
+разделены:
+
+```rust
+#[repr(u8)]
+pub enum EffectKind {
+    None = 0, Stun = 1, Bleed = 2, Crit = 3, Slow = 4, Heal = 5,
 }
 
 #[repr(C)]
-pub enum Rarity: u8 {
-    Common, Uncommon, Rare, Epic, Legendary, Mythic,
-}
-
-#[repr(C)]
-pub enum TechniqueType: u8 {
-    Jab, Hook, Uppercut, Cross, Kick, Elbow, Block,
-}
-
-#[repr(C)]
-pub enum Stat: u8 { Str, Agi, End, Foc }
-
-#[repr(C)]
-pub enum Effect: u8 {
-    None, Stun(u8), Bleed(u8), Crit(f32), Slow(u8), Heal(u16),
+pub struct Effect {
+    pub kind:  EffectKind,
+    pub value: f32,      // Stun/Slow — раунды; Bleed — урон/раунд;
+                         // Crit — множитель; Heal — HP. Для None игнорируется.
 }
 ```
 
@@ -71,8 +97,15 @@ pub struct Genome {
     pub element:       Element,
     pub tech_affinity: TechniqueType,
     pub rarity:        Rarity,
-    pub ability:       Option<Ability>,
+    pub ability:       Ability,           // Ability::None вместо Option — FFI-safe
     pub generation:    u32,
+}
+
+/// Пассивная способность. `None` играет роль отсутствия — `Option<T>` не FFI-safe.
+#[repr(u8)]
+pub enum Ability {
+    None = 0, Regen = 1, CritAura = 2, Thorns = 3,
+    Shield = 4, Lifesteal = 5, LineageSignature = 6,
 }
 
 #[repr(C)]
@@ -109,10 +142,11 @@ pub struct Pet {
     pub stats:        Stats,       // текущие (выращенные)
     pub created_at:   u64,         // unix ts
     pub last_sync:    u64,
+    pub last_bred_at: u64,         // 0 = не скрещивался; нужен для кулдауна 24ч (canBreed)
+    pub needs_zero_since: u64,     // 0 = все потребности > 0; иначе ts начала «нуля».
+                                   // Weakness наступает через 6ч — см. CORE_FORMULAS §1.6
+    pub is_weak:      bool,
 }
-
-#[repr(C)]
-pub enum Stage: u8 { Egg, Baby, Teen, Adult, Premium }
 
 #[repr(C)]
 pub struct Needs {
@@ -174,10 +208,13 @@ pub struct TechniqueCard {
 pub struct DailyActivitySnapshot {
     pub steps:           u32,
     pub sleep_minutes:   u16,
+    pub sleep_quality:   u8,                   // 0..100 — нужен для dailyGain[FOC]
     pub active_calories: u16,
-    pub workouts:        WorkoutSummary,      // массив фиксированной длины через len+ptr
-    pub workout_count:   u8,
+    pub workouts:        [WorkoutSummary; MAX_WORKOUTS],  // фиксированный массив
+    pub workout_count:   u8,                   // сколько элементов заполнено
     pub avg_hr:          u16,
+    pub hr_zone_high_min: u16,                 // минуты в высокой ЧСС-зоне — dailyGain[AGI]
+    pub meditation_min:  u16,                  // dailyGain[FOC]
     pub stress_level:    u8,                   // 0..100
     pub floors:          u16,
     pub stand_hours:     u8,
@@ -185,8 +222,10 @@ pub struct DailyActivitySnapshot {
     pub timestamp:       u64,
 }
 
-#[repr(C)]
-pub enum DataSource: u8 { Watch, Phone }
+pub const MAX_WORKOUTS: usize = 8;   // в зачёт идут первые MAX_WORKOUTS_FOR_GAIN = 3
+
+#[repr(u8)]
+pub enum DataSource { Watch = 0, Phone = 1 }
 
 #[repr(C)]
 pub struct WorkoutSummary {
@@ -211,10 +250,10 @@ pub struct DailyGoals {
 
 #[repr(C)]
 pub struct StatGains {
-    pub str: u16,
-    pub agi: u16,
-    pub end: u16,
-    pub foc: u16,
+    pub str: i16,   // знаковые: dailyGain[FOC] содержит вычитание `- stress/20`
+    pub agi: i16,   // и может быть отрицательным. При u16 это переполнение.
+    pub end: i16,
+    pub foc: i16,
 }
 ```
 
@@ -222,11 +261,15 @@ pub struct StatGains {
 ```rust
 #[repr(C)]
 pub struct Loadout {
-    pub pet_id:       [u8; 16],
-    pub pet_stats:    Stats,
-    pub pet_genome:   Genome,
-    pub cards:        [TechniqueCard; 5],  // 4 обычных + 1 signature
-    pub gear:         GearSummary,
+    pub pet_id:        [u8; 16],
+    pub pet_stats:     Stats,
+    pub pet_genome:    Genome,
+    pub pet_mood:      u8,                  // 0..100 — нужен для moodMultiplier
+                                            // в боевой формуле (CORE_FORMULAS §5.2).
+                                            // Без него simulate_combat её не вычислит.
+    pub cards:         [TechniqueCard; 5],
+    pub signature_idx: u8,                  // 0..4 — какая из карт занимает ult-слот
+    pub gear:          GearSummary,
 }
 
 #[repr(C)]
@@ -245,21 +288,23 @@ pub struct Match {
     pub mode:      MatchMode,
 }
 
-#[repr(C)]
-pub enum MatchMode: u8 { Casual, Ranked, Tournament }
+#[repr(u8)]
+pub enum MatchMode { Casual = 0, Ranked = 1, Tournament = 2 }
+
+pub const MAX_ROUNDS: usize = 20;   // предел боя, см. CORE_FORMULAS §5.4
 
 #[repr(C)]
 pub struct MatchResult {
-    pub winner:    Winner,
-    pub rounds:    RoundLog,         // массив фиксированной длины
-    pub round_count: u8,
-    pub final_hp_a: u16,
-    pub final_hp_b: u16,
-    pub seed:      u64,
+    pub winner:      Winner,
+    pub rounds:      [RoundLog; MAX_ROUNDS],  // массив, а не одиночная структура
+    pub round_count: u8,                      // сколько элементов заполнено
+    pub final_hp_a:  u16,
+    pub final_hp_b:  u16,
+    pub seed:        u64,
 }
 
-#[repr(C)]
-pub enum Winner: u8 { A, B, Draw }
+#[repr(u8)]
+pub enum Winner { A = 0, B = 1, Draw = 2 }
 
 #[repr(C)]
 pub struct RoundLog {
@@ -269,6 +314,120 @@ pub struct RoundLog {
     pub damage_b_to_a: u16,
     pub effect_triggered: Effect,
 }
+```
+
+### 3.7. Служебные типы public API
+
+Эти типы фигурируют в сигнатурах §4. Без них контракт не компилируется.
+
+```rust
+/// Детерминированный ГПСЧ. Основа гарантии «одинаковые входы → одинаковые выходы».
+/// Алгоритм фиксирован (PCG-XSH-RR 64/32) и НЕ может быть заменён на системный:
+/// от него зависит воспроизводимость боёв на всех платформах и golden-тесты.
+#[repr(C)]
+pub struct Rng { pub state: u64, pub inc: u64 }
+
+#[repr(C)]
+pub struct EvolutionCheck {
+    pub can_evolve:      bool,
+    pub next_stage:      Stage,
+    pub missing_level:   u32,    // 0 = требование выполнено
+    pub missing_mood:    u8,
+    pub missing_stats:   u32,
+}
+
+#[repr(u8)]
+pub enum CareAction { Feed = 0, Clean = 1, Play = 2, Sleep = 3, Hug = 4, Medicine = 5 }
+
+#[repr(C)]
+pub struct HeartVerdict {
+    pub passed:      bool,
+    pub heart_score: f32,        // 0.0 либо 0.5..0.70 — см. CORE_FORMULAS §2.2
+    pub reason:      HeartFailReason,
+}
+
+/// Причина отказа — для человекочитаемого сообщения на часах, а не только для лога.
+#[repr(u8)]
+pub enum HeartFailReason {
+    Ok = 0, LowPresence = 1, NoElevation = 2, TooLow = 3, PoorContact = 4,
+}
+
+#[repr(C)]
+pub struct BreedCheck {
+    pub can_breed:        bool,
+    pub reason:           BreedFailReason,
+    pub cooldown_left_s:  u64,
+    pub inbreeding_coeff: u8,
+}
+
+#[repr(u8)]
+pub enum BreedFailReason {
+    Ok = 0, NotAdult = 1, LowLevel = 2, TooRelated = 3, OnCooldown = 4,
+    MissingCatalyst = 5, IsWeak = 6,
+}
+
+#[repr(C)]
+pub struct Catalysts { pub love_crystal: bool, pub mutation: bool }
+
+#[repr(C)]
+pub struct EggGenome {
+    pub genome:           Genome,
+    pub incubation_hours: u8,    // 4..24, см. CORE_FORMULAS §3.2
+    pub parent_a:         [u8; 16],
+    pub parent_b:         [u8; 16],
+    pub mutated_genes:    u16,   // битовая маска мутировавших генов — для родословной
+}
+
+#[repr(C)]
+pub struct Banner {
+    pub id:          [u8; 16],
+    pub kind:        BannerKind,
+    pub pool_len:    u16,
+    pub pool:        *const ItemDef,   // владелец памяти — вызывающая сторона
+}
+
+#[repr(u8)]
+pub enum BannerKind { Standard = 0, Premium = 1 }
+
+#[repr(C)]
+pub struct GachaResult {
+    pub item:        ItemDef,
+    pub rarity:      Rarity,
+    pub from_pity:   bool,       // сработала ли гарантия — показывается игроку
+}
+
+#[repr(C)]
+pub struct PlayerPulls {
+    pub since_rare: u16,
+    pub since_epic: u16,
+    pub total:      u32,
+}
+
+#[repr(C)]
+pub struct PityState {
+    pub pulls_to_rare: u16,
+    pub pulls_to_epic: u16,
+}
+
+#[repr(C)]
+pub struct ItemDef {
+    pub id:       [u8; 16],
+    pub kind:     ItemKind,
+    pub rarity:   Rarity,
+    pub stats:    GearSummary,
+}
+
+#[repr(u8)]
+pub enum ItemKind {
+    Food = 0, Potion = 1, Cosmetic = 2, Gear = 3,
+    Egg = 4, Catalyst = 5, LoveCrystal = 6, Decor = 7,
+}
+
+#[repr(C)]
+pub struct Price { pub currency: Currency, pub amount: u32 }
+
+#[repr(u8)]
+pub enum Currency { Koins = 0, Gems = 1, Vitality = 2, Crowns = 3 }
 ```
 
 ---
@@ -290,8 +449,11 @@ pub fn tick_needs(needs: &mut Needs, dt_seconds: u64, is_sleeping: bool);
 pub fn mood_multiplier(mood: u8) -> f32;
 pub fn xp_to_next(level: u32) -> u64;
 pub fn can_evolve(pet: &Pet) -> EvolutionCheck;
-pub fn evolve(pet: &mut Pet, branch_hint: Option<Branch>) -> Result<(), CoreError>;
-pub fn apply_care_action(pet: &mut Pet, action: CareAction) -> Result<(), CoreError>;
+
+// Границу FFI пересекают только C-совместимые типы: код ошибки вместо Result,
+// флаг вместо Option. Внутри ядра можно пользоваться идиоматичным Rust.
+pub fn evolve(pet: &mut Pet, branch_hint: Branch, use_hint: bool) -> CoreError;
+pub fn apply_care_action(pet: &mut Pet, action: CareAction) -> CoreError;
 ```
 
 ### 4.3. Dojo / Technique Card
@@ -313,13 +475,24 @@ pub fn breed(
 ) -> EggGenome;     // содержит геном + инкубационное время
 pub fn mutation_chance(a: &Genome, b: &Genome, catalysts: &Catalysts) -> f32;
 pub fn stat_cap_penalty(generation: u32) -> f32;
-pub fn hybrid_of(e1: Element, e2: Element) -> Option<Element>;
+pub fn hybrid_of(e1: Element, e2: Element) -> Element;   // Element::None-эквивалента нет:
+                                                          // возвращает e1 при отсутствии гибрида
+
+/// Коэффициент родства: число общих предков в пределах глубины `depth`.
+/// Используется в `can_breed` (порог ≤3) и в `mutation_chance` (штраф −0.02·coeff).
+/// Требует родословной, поэтому принимает предков явно — ядро не ходит в БД.
+pub fn inbreeding_coeff(
+    lineage_a: *const [u8; 16], len_a: u16,
+    lineage_b: *const [u8; 16], len_b: u16,
+) -> u8;
 ```
 
 ### 4.5. Симбиоз (активность)
 ```rust
 pub fn compute_goals(baseline: &PersonalBaseline) -> DailyGoals;
-pub fn compute_vitality(snapshot: &DailyActivitySnapshot, goals: &DailyGoals) -> u16; // capped 150
+pub fn compute_vitality(
+    snapshot: &DailyActivitySnapshot, goals: &DailyGoals, streak_days: u32,
+) -> u16; // capped 150; streak_days обязателен — см. CORE_FORMULAS.md §4.3
 pub fn compute_stat_gains(
     snapshot: &DailyActivitySnapshot,
     goals: &DailyGoals,
@@ -347,14 +520,14 @@ pub fn price_for(item: &ItemDef) -> Price;
 
 ### 4.8. Ошибки
 ```rust
-#[repr(C)]
+#[repr(u8)]
 pub enum CoreError {
-    Ok,
-    InvalidInput,
-    NotFound,
-    ConstraintViolated,
-    OutOfRange,
-    RateLimited,
+    Ok = 0,
+    InvalidInput = 1,
+    NotFound = 2,
+    ConstraintViolated = 3,
+    OutOfRange = 4,
+    RateLimited = 5,
 }
 ```
 
@@ -362,14 +535,25 @@ pub enum CoreError {
 
 ## 5. ИНВАРИАНТЫ (всегда истинны)
 
+> Каждый инвариант обязан существовать как **исполняемый тест** в `core/tests/`,
+> а не только как утверждение в этом файле. Инварианты, проверяемые лишь чтением
+> документа, расходятся с кодом — именно так возникло нарушение №5.
+
 1. `0 ≤ needs.* ≤ 100` — все потребности в диапазоне.
 2. `pet.level ≥ 1` всегда.
 3. `Genome.generation` монотонно не убывает при breeding.
 4. `quality_score` всегда возвращает `0..=100`.
 5. `compute_vitality` всегда возвращает `0..=150`.
+   **Держится на порядке операций в `CORE_FORMULAS.md` §4.3:** clamp применяется
+   после умножения на `synergyMultiplier`. При обратном порядке максимум = 205.5.
 6. `simulate_combat` детерминирован: одинаковый `Match` + `seed` → одинаковый `MatchResult`.
 7. `validate_heart` на Absent-пульсе → `heartScore = 0`.
 8. `tech_card_bonus(card.type, pet.genome.tech_affinity)` даёт бонус только при совпадении.
+9. `round_count ≤ MAX_ROUNDS`, `workout_count ≤ MAX_WORKOUTS`, `signature_idx ≤ 4` —
+   длины не выходят за границы своих массивов.
+10. Каждый `Element` имеет хотя бы одну контрящую стихию (`elementMultiplier(x, e) > 1.0`).
+    Инвариант баланса: без него мета схлопывается к доминирующей стихии.
+    *Сейчас нарушен для Arcane и Air — см. план исправления, B1.*
 
 ---
 

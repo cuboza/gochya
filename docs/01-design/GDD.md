@@ -60,7 +60,8 @@ allStatGains *= moodMultiplier
 - Кривая XP — полиномиальная:
 ```
 xpToNext(level) = floor(80 · level^1.5)
-// Lv1→2: 80, Lv10→11: 2530, Lv30→31: 13145
+// Lv1→2: 80, Lv10→11: 2529, Lv30→31: 13145
+// Источник истины — CORE_FORMULAS.md §1.4
 ```
 
 ### 3.3. Эволюционные ветви
