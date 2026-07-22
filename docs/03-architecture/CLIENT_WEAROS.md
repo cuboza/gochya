@@ -143,36 +143,65 @@ class FilamentEngine {
 
 ### 4.3. Загрузка существа (glTF)
 ```kotlin
-fun loadPet(uri: Uri, animations: List<String>) {
-    val assetLoader = AssetLoader(engine, MaterialProvider(engine), EntityManager.get())
-    val resourceLoader = ResourceLoader(engine)
-    val asset = assetLoader.createAssetFromFile(uri.path)
-    resourceLoader.addResourceData(uri, readBuffer(uri))
-    resourceLoader.loadResources(asset!!)
-    asset.applyChanges()
+private lateinit var asset: FilamentAsset
+private var animIndex = 0
 
-    asset.entities.forEach { scene.addEntity(it) }
-    animations.forEach { animName ->
-        val animator = asset.instance.animator
-        animator.applyAnimation(animName, 0f)
-        animator.updateBoneMatrices()
-    }
+fun loadPet(glbBytes: ByteBuffer) {
+    val assetLoader = AssetLoader(engine, UbershaderProvider(engine), EntityManager.get())
+    val resourceLoader = ResourceLoader(engine)
+    asset = assetLoader.createAsset(glbBytes)!!      // .glb целиком из буфера
+    resourceLoader.loadResources(asset)
+    asset.releaseSourceData()                        // освободить исходный буфер
+    scene.addEntities(asset.entities)
+}
+
+/** Анимации адресуются ИНДЕКСОМ, не именем. Индекс ищем один раз при загрузке. */
+fun animationIndexOf(name: String): Int =
+    (0 until asset.instance.animator.animationCount)
+        .first { asset.instance.animator.getAnimationName(it) == name }
+
+/** Вызывать каждый кадр из Choreographer, передавая текущее время анимации. */
+fun updateAnimation(timeSeconds: Float) {
+    asset.instance.animator.applyAnimation(animIndex, timeSeconds)
+    asset.instance.animator.updateBoneMatrices()
 }
 ```
+
+> ⚠️ Прежний пример вызывал несуществующий `createAssetFromFile()`, передавал
+> в `applyAnimation()` имя вместо индекса и применял анимацию однократно при загрузке
+> с временем `0f` — то есть модель осталась бы неподвижной. `applyAnimation`
+> обязан вызываться каждый кадр с растущим временем, иначе анимации нет.
 
 ### 4.4. AOD (Ambient Mode)
 ```kotlin
 class AmbientCallback : AmbientModeSupport.AmbientCallback() {
     override fun onEnterAmbient(ambientDetails: Bundle?) {
-        // Упростить сцену: убрать партиклы, частицы, освещение
-        scene.removeEntity(particlesEntity)
-        view.blitMode = View.BlitMode.OPAQUE
-        // FPS降到1
-        choreographerInstance.setLowLatency(false)
+        // Ambient: система сама решает, когда перерисовывать (обычно раз в минуту).
+        // Снимаем свой frame-callback полностью — постоянный рендер здесь запрещён.
+        Choreographer.getInstance().removeFrameCallback(frameCallback)
+        scene.removeEntity(particlesEntity)   // убрать партиклы и лишние источники света
+        renderAmbientFrame()                  // одна отрисовка монохромной сцены
     }
-    override fun onExitAmbient() { /* восстановление */ }
+
+    // Вызывается системой периодически, пока часы в ambient
+    override fun onUpdateAmbient() = renderAmbientFrame()
+
+    override fun onExitAmbient() {
+        Choreographer.getInstance().postFrameCallback(frameCallback)  // вернуть 60 FPS
+    }
 }
 ```
+
+> ⚠️ **«1 FPS» в ambient — это не настройка частоты, а отказ от собственного цикла.**
+> Прежний пример вызывал `Choreographer.setLowLatency()` — такого метода не существует.
+> В Wear OS ambient приложение не рисует само: система вызывает `onUpdateAmbient()`
+> примерно раз в минуту, и отрисовать нужно ровно тогда. Попытка держать
+> `postFrameCallback` в ambient приведёт к тому, что система приглушит или снимет
+> приложение, а бюджет батареи будет нарушен.
+>
+> **Проверить в Gate 1:** удерживает ли Filament свой `SurfaceView` в ambient и
+> корректно ли перерисовывает по `onUpdateAmbient()`. Это неочевидное место —
+> Filament рассчитан на непрерывный рендер-луп.
 
 ---
 
@@ -182,33 +211,61 @@ class AmbientCallback : AmbientModeSupport.AmbientCallback() {
 ```kotlin
 class RecordingSession(context: Context) {
     private val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    private val accel = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)!!
-    private val gyro = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)!!
+    // TYPE_LINEAR_ACCELERATION, а не TYPE_ACCELEROMETER: гравитация исключена системой,
+    // что соответствует userAcceleration на watchOS (MECHANIC_ML_CLASSIFIER.md §2.2а)
+    private val accel = sm.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)!!
+    private val gyro  = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)!!
+
+    private val accelSamples = mutableListOf<FloatArray>()
+    private val gyroSamples  = mutableListOf<FloatArray>()
+
+    private val listener = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent) {
+            // timestamp обязателен: SENSOR_DELAY_GAME — лишь подсказка, реальная
+            // частота плавает, и перед DTW сигнал ресэмплится на сетку 50 Гц
+            val row = floatArrayOf(e.values[0], e.values[1], e.values[2], e.timestamp / 1e9f)
+            when (e.sensor.type) {
+                Sensor.TYPE_LINEAR_ACCELERATION -> accelSamples.add(row)
+                Sensor.TYPE_GYROSCOPE           -> gyroSamples.add(row)
+            }
+        }
+        override fun onAccuracyChanged(s: Sensor?, a: Int) {}
+    }
 
     fun startRecording(durationSec: Float, onResult: (RecordingResult) -> Unit) {
-        val samples = mutableListOf<FloatArray>()
-        sm.registerListener(object : SensorEventListener {
-            override fun onSensorChanged(event: SensorEvent) {
-                samples.add(floatArrayOf(
-                    event.values[0], event.values[1], event.values[2],  // accel
-                    event.timestamp / 1e9f
-                ))
-            }
-            override fun onAccuracyChanged(p0: Sensor?, p1: Int) {}
-        }, accel, SensorManager.SENSOR_DELAY_GAME)  // ~50 Гц
+        accelSamples.clear(); gyroSamples.clear()
+        sm.registerListener(listener, accel, SensorManager.SENSOR_DELAY_GAME)  // цель ~50 Гц
+        sm.registerListener(listener, gyro,  SensorManager.SENSOR_DELAY_GAME)  // ← гироскоп нужен классификатору
 
         Handler(Looper.getMainLooper()).postDelayed({
-            sm.unregisterListener(/* ... */)
-            onResult(process(samples))
+            sm.unregisterListener(listener)          // снимаем ОБА сенсора разом
+            onResult(process(accelSamples, gyroSamples))
         }, (durationSec * 1000).toLong())
     }
 }
 ```
 
+> ⚠️ Прежний пример объявлял `gyro`, но **не регистрировал** его, и складывал только
+> акселерометр. Классификатору нужен второй ряд `gyro_magnitude`
+> (`MECHANIC_ML_CLASSIFIER.md` §2.2) — без него DTW не отличит хук от джеба,
+> поскольку именно вращение кисти их разделяет.
+
 ### 5.2. Пульс realtime — Samsung Health Sensor SDK
-- Требует partner approval от Samsung (см. RISKS R2).
-- Если partner status не получен → **degraded mode**: `Sensor.TYPE_HEART_RATE` (задержка 5–15 сек, но не блокирует Dojo полностью).
+- Требует partner approval от Samsung (см. `RISKS.md` **R16** — top-риск проекта).
 - См. `MECHANIC_HEART_GATE.md` §5 для контракта.
+
+> 🚨 **Без partner approval Dojo на Galaxy Watch не работает.** Прежняя формулировка
+> обещала «degraded mode на `Sensor.TYPE_HEART_RATE`, не блокирует Dojo полностью» —
+> это неверно:
+> - `heartGate` требует `HR_present ≥ 0.80` в окне 5–8 секунд, а `TYPE_HEART_RATE`
+>   отдаёт значения с задержкой 5–15 секунд. Набрать 80% валидных сэмплов
+>   в таком окне нельзя.
+> - Без пройденного `heartGate` античит возвращает REJECTED (`ANTICHEAT.md` §3.0),
+>   то есть карта не создаётся вовсе — «карты Common» не будет.
+>
+> **Sprint 0 обязан замерить фактическую частоту и задержку `TYPE_HEART_RATE`
+> на целевых Galaxy Watch.** Если она окажется близка к 1 Гц, fallback становится
+> реальным и риск снижается. Пока замера нет — исходим из того, что fallback'а нет.
 
 ### 5.3. Классификатор
 - MVP: DTW на Kotlin (5 шаблонов) — см. `MECHANIC_ML_CLASSIFIER.md`.
@@ -262,17 +319,33 @@ val exerciseClient = client.exerciseClient
 
 ## 8. BEZEL (ROTATING BEZEL)
 
-- `PhysicalRotationSensor` (Wear OS) или `RotaryEncoder` через Compose.
+- Compose for Wear OS: `Modifier.onRotaryScrollEvent` (низкоуровневый перехват)
+  либо `Modifier.rotaryScrollable` со скролл-адаптером для списков.
 - Используется для радиального меню (Уход/Тренировка/Бой/Профиль).
 
 ```kotlin
-val rotaryInput = rememberRotaryInput()
-LaunchedEffect(rotaryInput) {
-    rotaryInput.rotaryScrollCollector(initial = 0f) { scroll, _ ->
-        // обновить активный элемент радиального меню
-    }
-}
+var focusedIndex by remember { mutableIntStateOf(0) }
+val focusRequester = remember { FocusRequester() }
+
+Box(
+    modifier = Modifier
+        .onRotaryScrollEvent { event ->
+            // event.verticalScrollPixels > 0 — поворот «вперёд» по безелю/Crown
+            val step = if (event.verticalScrollPixels > 0) 1 else -1
+            focusedIndex = (focusedIndex + step).mod(MENU_ITEMS)
+            true                        // событие обработано
+        }
+        .focusRequester(focusRequester)
+        .focusable()                    // без focusable события не приходят
+) { RadialMenu(focusedIndex) }
+
+LaunchedEffect(Unit) { focusRequester.requestFocus() }
 ```
+
+> ⚠️ Прежний пример использовал `PhysicalRotationSensor` и `rememberRotaryInput()` —
+> таких API не существует. Важная деталь: компонент обязан быть `focusable()`
+> и удерживать фокус, иначе события вращения до него не доходят — это самая частая
+> причина «безель не работает».
 
 ---
 

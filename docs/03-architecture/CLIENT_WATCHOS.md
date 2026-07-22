@@ -122,10 +122,12 @@ motion.startDeviceMotionUpdates(to: queue) { data, _ in
 - См. `MECHANIC_HEART_GATE.md`.
 
 > ⚠️ **Edge cases (audit A5/B1):**
-> 1. **Одновременно только одна `HKWorkoutSession`.** Если у пользователя уже запущена тренировка (бег, вело, Apple Fitness+), GOCHYA **не сможет** запустить свою. Dojo должен проверить `HKHealthStore.biologicalSex()`/`workoutSession` состояние и в случае конфликта:
+> 1. **Одновременно только одна `HKWorkoutSession`.** Если у пользователя уже запущена тренировка (бег, вело, Apple Fitness+), GOCHYA **не сможет** запустить свою. Обнаружение конфликта: попытка `HKWorkoutSession(healthStore:configuration:)` + `startActivity` завершается ошибкой — её и надо обрабатывать; отдельного публичного API «есть ли чужая активная сессия» watchOS не предоставляет. В случае конфликта:
 >    - показать мягкое сообщение «Сначала заверши активную тренировку, чтобы записать приём»;
 >    - НЕ запускать вторую session (это невозможно);
->    - предложить fallback: `/dojo/preflight` вернёт `degraded=true`, и запись пройдёт без realtime HR → `heartScore=0` (карта будет Common/Uncommon, но игрок не заблокирован).
+>    - **Dojo недоступен до завершения чужой тренировки.** Остальной геймплей (уход, тренировки-миниигры, PvP уже записанными картами) работает.
+>
+>    > ⚠️ Прежняя редакция обещала fallback «запись без realtime HR → `heartScore=0`, карта Common/Uncommon». Это неверно: без пройденного `heartGate` античит возвращает REJECTED (`ANTICHEAT.md` §3.0) и карта не создаётся, а сам расчёт даёт при `heartScore=0` не Common, а q=85 (Legendary) — см. `MECHANIC_HEART_GATE.md` §7.1. Режима «карта хуже без пульса» в системе нет.
 > 2. **Не вызывать `finishWorkout()`** — иначе сессия запишется в Health как тренировка, поднимет оранжевое Activity-кольцо и разозлит пользователя. Использовать `discardWorkout()` вместо `finishWorkout()` для отмены без сохранения.
 > 3. **Watch locked** — доставка HR может задерживаться при блокировке экрана. Держать экран активным во время Dojo (но dim для экономии батареи — см. `MECHANIC_HEART_GATE.md` §4).
 
@@ -223,19 +225,31 @@ struct CoreContext {
     static var rng: OpaquePointer?
 }
 
-func coreQualityScore(metrics: PunchMetrics, heart: HeartRateEvidence) -> Float {
-    return gochya_quality_score(metrics.toC(), heart.toC())
+func coreQualityScore(metrics: PunchMetrics, heart: HeartRateEvidence) -> UInt8 {
+    var m = metrics.toC()
+    var h = heart.toC()
+    return gochya_quality_score(&m, &h)      // ядро принимает указатели, не значения
 }
 
-func coreSimulateCombat(match: Match, seed: UInt64) -> MatchResult {
+// Большие структуры — через out-параметр, а не возвратом by value (audit T4).
+// ABI возврата крупных агрегатов не стандартизирован между arm64_32/aarch64/x86_64.
+func coreSimulateCombat(match: Match, seed: UInt64) throws -> MatchResult {
     var cMatch = match.toC()
-    let cResult = gochya_simulate_combat(&cMatch, seed)
-    return MatchResult.fromC(cResult)
+    var out = MatchResultC()                 // память выделяет вызывающая сторона
+    let err = gochya_simulate_combat(&cMatch, seed, &out)
+    guard err == GOCHYA_OK else { throw CoreError(err) }
+    return MatchResult.fromC(out)
 }
 ```
 
+> ⚠️ Прежний пример возвращал `MatchResult` по значению и игнорировал код ошибки —
+> это противоречило `CORE_SPEC.md` §8 и JNI-мосту Wear OS, где исправление T4
+> уже применено. `MatchResult` — это ~400+ байт, и на watchOS (`arm64_32`,
+> 32-битные указатели) такой возврат особенно ненадёжен.
+
 - Все типы — в `Types.swift` (Swift ↔ C-struct).
 - Каждая формула — вызов в ядро, не пересчитывается локально.
+- `quality_score` возвращает `u8` (0..100), а не `Float` — см. `CORE_SPEC.md` §4.3.
 
 ---
 

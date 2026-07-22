@@ -26,6 +26,11 @@
 - **Клиенты тонкие** — только UI, ввод, рендер, чтение сенсоров, отправка намерений на сервер.
 - **Сервер — авторитет** для боя, экономики, генома, мутаций, IAP.
 
+> **Телефон — полноценный клиент, не companion.** Флаттер-клиент исполняет то же ядро
+> через `dart:ffi` и проходит игру целиком без часов (`CLIENT_COMPANION.md`). Часы —
+> опциональный премиум-клиент; их эксклюзив — запись ударов (Dojo). Все три клиента
+> равноправны перед сервером-авторитетом и делят единый PvP-пул.
+
 ---
 
 ## 2. КОМПОНЕНТЫ СИСТЕМЫ
@@ -89,7 +94,7 @@ gochya/
 │   │   ├── profile/
 │   │   ├── inventory/
 │   │   ├── matchmaking/
-│   │   ├── combat/                      ← использует core (WASM/native)
+│   │   ├── combat/                      ← использует core через cgo (не WASM, см. §4)
 │   │   ├── economy/
 │   │   ├── iap/
 │   │   ├── seasons/
@@ -112,13 +117,22 @@ gochya/
 | Таргет | Формат | Использовать |
 |---|---|---|
 | **iOS device** | static `.a` → `.xcframework` slice (`aarch64-apple-ios`) | Swift bridge через FFI |
-| **watchOS device** | static `.a` → `.xcframework` slice (`aarch64-apple-watchos`, Series 4+) | Swift bridge через FFI |
+| **watchOS device** | static `.a` → `.xcframework` slice (**`arm64_32-apple-watchos`**, Series 4+) | ⚠️ tier 3, nightly + `-Z build-std` |
 | **iOS simulator** | `.xcframework` slice (`x86_64-apple-ios-simulator`) | разработка/тесты |
 | **Android / Wear OS** | `.so` (`aarch64-linux-android`) | JNI для нативного Kotlin-клиента |
 | **Server** | статическая `.a` (`x86_64-unknown-linux-gnu`) → **cgo** | серверная валидация |
 | **Tests / CI** | native x86_64 | unit/property/golden tests |
 
-> ⚠️ **Важно (T1):** `aarch64-apple-ios` и `aarch64-apple-watchos` — **разные triple** с разным ABI (watchOS использует 32-битные указатели на старых моделях, отдельный deployment target). Один `.xcframework` содержит оба как slices, но компилируются они раздельно.
+> 🚨 **Важно (T1, уточнено аудитом):** watchOS-приложения для Apple Watch Series 4+
+> используют ABI **`arm64_32`** — 64-битные регистры при 32-битных указателях.
+> Нужный Rust-таргет — `arm64_32-apple-watchos`, и он **tier 3**: пребилда `std` нет,
+> требуется nightly с `-Z build-std`. `aarch64-apple-watchos` — это симулятор
+> и arm64-варианты, для устройства он не подходит.
+>
+> Практические следствия: CI для watchOS-слайса тянет nightly-toolchain;
+> `usize` там 32-битный, поэтому в ядре **нельзя** полагаться на `usize == u64`
+> при сериализации и FFI. Проверить спайком в Sprint 0 — это единственный таргет,
+> способный заблокировать всю платформу.
 
 > ⚠️ WASM (`wasm32-wasip1`, **не** `wasm32-unknown-unknown` — T2) оставлен как опция для будущего sandboxing, **не для MVP**. Альтернатива cgo на сервере — pure-Go `wazero` runtime, если cgo overhead станет узким местом.
 
@@ -182,13 +196,15 @@ gochya/
 1. Часы/телефон агрегируют дневную активность (нативные API)
 
 2. Раз в час ИЛИ при открытии игры клиент синхронизируется:
-   → POST /sync/activity {daily_snapshot, device_signature}
+   → POST /sync/activity {daily_snapshot, source_metadata}
 
 3. Сервер:
    → anticheat-validate snapshot (дедупликация, типы активности)
-   → core::synergy::compute_vitality(snapshot, baseline)
-   → core::synergy::compute_stat_gains(...)
-   → начисляет Vitality, обновляет статы, стрик
+   → goals := core::synergy::compute_goals(baseline)
+   → total := core::synergy::compute_vitality(snapshot, goals, streak_days)
+   → core::synergy::compute_stat_gains(snapshot, goals, genome, streak_days)
+   → начисляет ТОЛЬКО прирост: delta = max(0, total − уже_начислено_за_день)
+     (протокол идемпотентности — BACKEND.md §5, Activity Sync)
 
 4. Сервер возвращает обновлённое состояние
    → клиент обновляет UI (кольца, питомца)

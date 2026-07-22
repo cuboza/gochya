@@ -21,10 +21,15 @@ struct Genome {
     element:      Element,            // Fire | Water | Earth | Air | Light | Dark | Arcane
     tech_affinity: TechniqueType,     // СВЯЗЬ С МЕХАНИКОЙ ЗАПИСИ УДАРОВ
     rarity:       Rarity,             // Common..Mythic — влияет на потолок и мутации
-    ability:      Option<PassiveGene>,// regen, critAura, thorns…
+    ability:      Ability,            // Ability::None вместо Option — Option не FFI-safe
     generation:   u32,                // растёт с каждым скрещиванием
 }
 ```
+
+> Источник истины — `CORE_SPEC.md` §3.2. Прежняя запись `Option<PassiveGene>`
+> противоречила ядру: `Option<T>` нельзя положить в `#[repr(C)]`-структуру,
+> которая маршалится в Swift/Kotlin/Dart. Отсутствие способности выражается
+> вариантом `Ability::None`.
 
 - **MVP:** по одному значению на ген (просто и предсказуемо).
 - **Фаза 2:** расширить до **аллелей (доминантный + рецессивный)** — рецессивные гены всплывают через поколение, длинная метагринда.

@@ -151,7 +151,7 @@ CREATE TABLE technique_cards (
 CREATE TABLE inventory_items (
     id              UUID PRIMARY KEY,
     owner_id        UUID NOT NULL REFERENCES players(id),
-    item_def_id     TEXT NOT NULL,       -- ссылка на каталог
+    item_def_id     BIGINT NOT NULL,     -- каталожный номер (u32 в core, CORE_SPEC §3.7). Был TEXT — не совпадало с типом ядра
     quantity        INT NOT NULL DEFAULT 1,
     metadata        JSONB,
     acquired_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -298,6 +298,37 @@ CREATE TABLE quests (
 );
 CREATE INDEX idx_quests_player_active ON quests(player_id) WHERE claimed_at IS NULL;
 
+-- Турниры и сетка (эндпоинты /tournaments/* и тип Bracket существовали без таблиц)
+CREATE TABLE tournaments (
+    id              UUID PRIMARY KEY,
+    season_id       INT NOT NULL REFERENCES seasons(id),
+    name            TEXT NOT NULL,
+    starts_at       TIMESTAMPTZ NOT NULL,
+    ends_at         TIMESTAMPTZ NOT NULL,
+    state           TEXT NOT NULL,       -- registration | running | finished
+    max_players     INT NOT NULL
+);
+
+CREATE TABLE tournament_entries (
+    tournament_id   UUID NOT NULL REFERENCES tournaments(id),
+    player_id       UUID NOT NULL REFERENCES players(id),
+    seed            INT,                 -- посев по рейтингу на момент старта
+    eliminated_at   TIMESTAMPTZ,
+    PRIMARY KEY (tournament_id, player_id)
+);
+
+-- Один ряд = один матч сетки (соответствует core-типу Bracket, CORE_SPEC §3.7)
+CREATE TABLE tournament_brackets (
+    tournament_id   UUID NOT NULL REFERENCES tournaments(id),
+    round           SMALLINT NOT NULL,
+    slot            SMALLINT NOT NULL,   -- позиция матча внутри раунда
+    player_a        UUID REFERENCES players(id),   -- NULL = ещё не определён
+    player_b        UUID REFERENCES players(id),
+    winner_id       UUID REFERENCES players(id),   -- NULL пока не сыграно
+    match_id        UUID REFERENCES matches(id),
+    PRIMARY KEY (tournament_id, round, slot)
+);
+
 -- Логи античита (для расследований)
 CREATE TABLE anticheat_events (
     id              BIGSERIAL PRIMARY KEY,
@@ -350,12 +381,27 @@ POST   /me/pets/:id/sleep                                 → Pet
 
 ### Training / Dojo
 ```
-POST   /dojo/preflight       { }                         → { baseline, contactConfidence }
-POST   /dojo/submit          { metrics, heartEvidence, signalHash }
+POST   /dojo/preflight       { }                         → { nonce, expiresAt }
+POST   /dojo/submit          { nonce, metrics, heartEvidence, clientEntropy }
                                                             → TechniqueCard
 GET    /me/techniques                                    → TechniqueCard[]
-POST   /me/techniques/equip   { cardIds[], signatureId } → Loadout
+POST   /me/techniques/equip   { cardIds[], signatureIdx } → Loadout
 ```
+
+> ⚠️ **Контракт приведён в соответствие с `ANTICHEAT.md` §3 (исправление аудита).**
+> - `preflight` **выдаёт серверный `nonce`** (TTL 5 мин, одноразовый) — без него
+>   replay-detection из §3.3 нереализуема. Прежде эндпоинт возвращал
+>   `{ baseline, contactConfidence }`, хотя обе величины измеряются **на устройстве**
+>   и серверу в этот момент неизвестны.
+> - `submit` принимает `nonce` и `clientEntropy` (одно число, §3.4). Прежнее поле
+>   `signalHash` убрано: сервер сам считает
+>   `replay_hash = SHA-256(nonce ‖ metrics ‖ heartEvidence)`, доверять хэшу
+>   от клиента бессмысленно.
+> - `signatureId` → `signatureIdx` (0..4): signature — свойство лоадаута,
+>   а не карты (`CORE_SPEC.md` §3.6).
+>
+> Возможные отказы `submit`: `ANTICHEAT_REJECTED` с причиной
+> (`heart_gate_failed` | `replay_detected` | `nonce_invalid` | `rate_limited`).
 
 ### PvP
 ```
@@ -399,9 +445,16 @@ GET    /me/season-progress                               → SeasonProgress
 
 ### Activity Sync
 ```
-POST   /sync/activity         { snapshot, deviceSig }    → { vitality, statGains }
-GET    /me/activity/week                                → DailyActivity[]
+POST   /sync/activity         { snapshot, sourceMetadata } → { vitality, statGains }
+GET    /me/activity/week                                   → DailyActivity[]
 ```
+
+> ⚠️ Поле называлось `deviceSig`, что подразумевало криптографическую подпись.
+> Её не существует: HealthKit и Samsung Health подписанных агрегатов сторонним
+> приложениям не выдают (`ANTICHEAT.md` §5.5). Передаётся строка-источник
+> (`healthkit://watch`, `samsung_health://watch`, `google_fit://phone`),
+> и используется она только для дедупликации и приоритизации источников,
+> **не как доказательство подлинности**.
 
 > **Идемпотентность — обязательна.** Клиент синхронизируется раз в час, и снапшот за день
 > приходит многократно с растущими значениями. Начислять `compute_vitality(snapshot)`
@@ -443,24 +496,63 @@ WS  /ws/spectate/:matchId   → live трансляция боя (для топ�
 
 ```go
 // псевдокод
-func findMatch(player Player, loadout Loadout, mode Mode) (Match, error) {
-    power := core.EffectivePower(loadout)
-    tolerance := 50 + (queueTimeSeconds(player) * 2)  // расширяется со временем
+const (
+    baseTolerance = 50
+    tolerancePerSec = 2      // допуск расширяется со временем ожидания
+    maxTolerance  = 600
+    queueDeadline = 60 * time.Second
+)
 
+func findMatch(ctx context.Context, p Player, l Loadout, mode Mode) (Match, error) {
+    power := core.EffectivePower(l)
+    enqueue(mode, p.ID, power)
+    defer dequeue(mode, p.ID)
+
+    deadline := time.Now().Add(queueDeadline)
     for {
-        opponent := redisSearchOpponent(power, tolerance)
-        if opponent != nil {
-            return createMatch(player, opponent, mode)
+        // допуск ПЕРЕСЧИТЫВАЕТСЯ на каждой итерации, иначе он никогда не растёт
+        waited := time.Since(deadline.Add(-queueDeadline)).Seconds()
+        tol := min(baseTolerance+int(waited)*tolerancePerSec, maxTolerance)
+
+        if opp := redisSearchOpponent(mode, power, tol, p.ID); opp != nil {
+            return createMatch(p, opp, mode)
         }
-        time.Sleep(2 * time.Second)
-        if queueTimeout(player) { return expandTolerance() }
+        if time.Now().After(deadline) {
+            return Match{}, ErrNoOpponent   // клиент предложит бой с ботом
+        }
+        select {
+        case <-ctx.Done():                  // игрок ушёл из очереди
+            return Match{}, ctx.Err()
+        case <-time.After(2 * time.Second):
+        }
     }
 }
 ```
 
+> ⚠️ Прежний псевдокод считал `tolerance` **один раз до цикла**, поэтому допуск
+> не расширялся никогда, а по таймауту вызывал `expandTolerance()`, возвращая его
+> результат как `Match` — несовместимые типы. Кроме того, не было ни выхода по отмене,
+> ни исключения самого игрока из результатов поиска.
+
 - Redis ZSET `matchmaking_queue_<mode>` с ключом `effectivePower`.
 - Поиск в радиусе `[power-tolerance, power+tolerance]`.
-- Кроссплатформенный: watchOS ↔ Wear OS ↔ companion в одном пуле.
+- **Кроссплатформенный единый пул:** watchOS ↔ Wear OS ↔ **телефон** в одном ZSET.
+
+> **Единый пул без платформенного коэффициента (проектное решение).** Ключ очереди —
+> `effectivePower`, и **никакого множителя «телефон/часы» к нему не применяется.**
+> Причины:
+> - `effectivePower` уже включает силу карт (`RARITY_STAT_MULT`), поэтому игрок
+>   со слабыми картами естественно получает более низкий power и соперника такой же
+>   силы — доступ к записи удара учитывается автоматически, без отдельной ручки.
+> - Платформенный коэффициент был бы эксплуатируем: игрок подавал бы лоадаут
+>   с той платформы, которой достался бонус.
+> - Не дробить пул критично для бюджета `matchmaking ≤ 30 сек median` — при базе
+>   нишевой категории два раздельных пула удвоили бы время подбора.
+>
+> Асимметрия сенсоров между самими часами (watchOS vs Wear OS) — отдельный вопрос
+> паритета `qualityScore`, решается нормализацией в ядре, а не в матчмейкинге
+> (`MECHANIC_ML_CLASSIFIER.md` §4). Телефон в этой асимметрии не участвует — он
+> карты записью не создаёт.
 
 ---
 

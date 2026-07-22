@@ -19,15 +19,36 @@
 
 **Рекомендация: Rust** (статические гарантии, отличный FFI, малый runtime, легко кросс-компилировать).
 
-| Таргет | Выход |
-|---|---|
-| `aarch64-apple-ios` (watchOS/iOS) | `libgochya_core.a` → `.xcframework` |
-| `aarch64-linux-android` (Wear OS) | `libgochya_core.so` → JNI для Kotlin-клиента |
-| `x86_64-unknown-linux-gnu` (server) | `.a` или cgo |
-| `wasm32-unknown-unknown` (опц. сервер) | `.wasm` |
-| `x86_64-*` (CI/тесты) | native binary |
+Источник истины по таргетам — `ARCHITECTURE.md` §4. Здесь та же таблица:
 
-Альтернатива — C#/.NET 8 NativeAOT (если команда сильнее в C#).
+| Таргет | Выход | Примечание |
+|---|---|---|
+| `aarch64-apple-ios` | `.a` → slice в `.xcframework` | iOS (companion) |
+| **`arm64_32-apple-watchos`** | `.a` → slice в `.xcframework` | **Apple Watch, см. предупреждение ниже** |
+| `x86_64-apple-ios-simulator` | slice в `.xcframework` | разработка/тесты |
+| `aarch64-linux-android` | `.so` | JNI для Kotlin-клиента (Wear OS) |
+| `x86_64-unknown-linux-gnu` | `.a` → cgo | сервер |
+| `x86_64-*` | native binary | CI/тесты |
+
+> 🚨 **watchOS — самый рискованный таргет сборки, и это не `aarch64-apple-ios`.**
+> Приложения watchOS для Apple Watch Series 4+ используют ABI **`arm64_32`**
+> (64-битные регистры, 32-битные указатели). Соответствующий Rust-таргет —
+> `arm64_32-apple-watchos`, и он **tier 3**: нет пребилда `std`, требуется
+> nightly-toolchain с `-Z build-std`. Это надо проверить спайком в Sprint 0
+> **до** того, как ядро вырастет: если таргет не заведётся, вариантами остаются
+> C-обёртка через отдельный статический слой либо перенос части логики на Swift,
+> и оба меняют архитектуру.
+>
+> `aarch64-apple-watchos` существует, но относится к симулятору и к arm64-моделям;
+> для устройства нужен `arm64_32`. Прежняя строка «`aarch64-apple-ios` (watchOS/iOS)»
+> объединяла две разные платформы с разным ABI.
+
+> WASM (`wasm32-wasip1`) — опция для будущего sandboxing, **не для MVP**
+> (`ARCHITECTURE.md` §4). Прежде здесь стоял `wasm32-unknown-unknown`, который
+> не подходит для серверного исполнения (нет WASI-интерфейсов).
+
+Альтернатива — C#/.NET 8 NativeAOT (если команда сильнее в C#). Учесть, что
+NativeAOT под watchOS официально не поддерживается — этот путь закрывает Apple Watch.
 
 ---
 
@@ -336,8 +357,17 @@ pub struct EvolutionCheck {
     pub missing_stats:   u32,
 }
 
+/// Единственное определение. Раньше этот enum задавался дважды (здесь и в §4.2)
+/// с разными вариантами — `Hug`/`Medicine` против `Cure`/`UseItem`.
 #[repr(u8)]
-pub enum CareAction { Feed = 0, Clean = 1, Play = 2, Sleep = 3, Hug = 4, Medicine = 5 }
+pub enum CareAction {
+    Feed = 0,      // требует item_def_id (еда)
+    Clean = 1,     // требует item_def_id (мыло/шампунь) либо 0 для мини-игры
+    Play = 2,
+    Sleep = 3,
+    Hug = 4,       // быстрый +mood по тапу на питомца
+    Cure = 5,      // снятие Weakness, требует item_def_id (лекарство)
+}
 
 #[repr(C)]
 pub struct HeartVerdict {
@@ -411,10 +441,13 @@ pub struct PityState {
 
 #[repr(C)]
 pub struct ItemDef {
-    pub id:       [u8; 16],
-    pub kind:     ItemKind,
-    pub rarity:   Rarity,
-    pub stats:    GearSummary,
+    pub item_def_id: u32,   // каталожный номер — тот же тип, что InventoryEntry.item_def_id
+                            // и аргумент apply_care_action(). НЕ [u8;16]: определение
+                            // предмета адресуется стабильным числом каталога, а UUID
+                            // получают только инстансы в инвентаре.
+    pub kind:        ItemKind,
+    pub rarity:      Rarity,
+    pub stats:       GearSummary,
 }
 
 #[repr(u8)]
@@ -510,11 +543,10 @@ pub fn apply_care_action(pet: &mut Pet, action: CareAction, item_def_id: u32) ->
 //   (audit C2: без item_id логика еды/расходников была не привязана)
 ```
 
-#### CareAction enum (audit C2)
-```rust
-#[repr(u8)]
-pub enum CareAction { Feed, Clean, Play, Sleep, Cure, UseItem }
-```
+> `CareAction` определён в §3.7 — единственное место. Дублирующее определение
+> с вариантами `Cure`/`UseItem` отсюда удалено: два несовпадающих объявления
+> одного enum'а в одном файле контракта означали, что клиенты и сервер
+> маршалили бы разные числовые коды для одного действия.
 
 ### 4.3. Dojo / Technique Card
 ```rust
@@ -582,11 +614,26 @@ pub fn defense_ratio(foc_stat: u32, gear_foc_bonus: i16) -> f32;
 pub fn starting_stamina(end_stat: u32) -> u32;
 pub fn stamina_regen(end_stat: u32) -> u32;
 pub fn rng_variance(rng: &mut Rng, lo: f32, hi: f32) -> f32;
-pub fn select_card_ai(my_state: &CombatantState, enemy_state: &CombatantState) -> u8; // index в Loadout.cards
+
+/// Выбор карты. Помимо динамического состояния нужны сами карты и геном —
+/// эвристика в CORE_FORMULAS §5.2-extended обращается к baseDamage, типу карты,
+/// tech_affinity и стихиям обеих сторон. Через `CombatantState` они недоступны,
+/// поэтому лоадауты передаются явно.
+pub fn select_card_ai(
+    my_loadout:    &Loadout,
+    my_state:      &CombatantState,
+    enemy_loadout: &Loadout,
+    enemy_state:   &CombatantState,
+) -> u8;   // index в my_loadout.cards, 0..4
+
 pub fn apply_active_effects(state: &mut CombatantState) -> Effect; // bleed tick, stun decrement
 ```
 
 #### CombatantState (внутреннее состояние симуляции, audit C1)
+
+Только то, что **меняется по ходу боя**. Статика (карты, геном, снаряжение) живёт
+в `Loadout` и передаётся в функции отдельно.
+
 ```rust
 #[repr(C)]
 pub struct CombatantState {
@@ -649,7 +696,12 @@ pub enum CoreError {
     (б) нет слабого доминирования — неверно, что строка `e` поэлементно ≥ столбца `e`
     при хотя бы одном строгом превосходстве.
     Без этого мета схлопывается к доминирующей стихии.
-    Проверено для текущей `ELEMENT_TABLE` (`BALANCE.md` §1): разброс нетто 0.136.
+
+    **Проверяется на каждом релизном подмножестве стихий, а не только на полном наборе.**
+    Тест обязан прогонять как минимум: `{Fire,Water,Earth}` (MVP), `{Fire,Water,Earth,Steam}`,
+    `{Fire,Water,Earth,Air}`, полный набор. Инвариант, проверенный только на полном
+    наборе, пропускает дефект: круг из 4 звеньев разваливался при выпуске MVP без Air,
+    оставляя Water без контры. Текущие разбросы — в `BALANCE.md` §1.2.
 
 ---
 
