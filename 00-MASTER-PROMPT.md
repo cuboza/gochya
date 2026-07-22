@@ -112,7 +112,7 @@
 5. CI: сборка ядра под 5 deployment-таргетов (`aarch64-apple-ios`, `arm64_32-apple-watchos`, iOS Simulator, `aarch64-linux-android`, `x86_64-unknown-linux-gnu`) плюс native test target. Точный simulator target фиксируется build-матрицей Xcode.
 
 ### Этап 1 — MVP-вертикаль (см. `docs/07-roadmap/MVP.md`)
-Скоуп vertical slice: 1 базовый вид в 3 элементальных вариантах, 4 потребности, Egg→Baby→Teen→Adult, 1 Strength-мини-игра, 3 типа ударов с heart gate на Wear OS, casual PvP, базовый бридинг с 1 гибридом Steam, 2 активные валюты и магазин из 6 предметов. Ranked, сезоны, лиги, друзья, IAP, гача, Battle Pass и полный watchOS-клиент идут в Alpha/Beta. Точный контент — `docs/07-roadmap/CONTENT_MANIFEST.md`.
+Скоуп vertical slice: 3 разных стартовых вида (Fire / Water / Earth) с уникальными силуэтами и 1 отдельный Steam-гибрид, 4 потребности, Egg→Baby→Teen→Adult, 1 Strength-мини-игра, 3 типа ударов с heart gate на Wear OS, casual PvP, базовый бридинг, 2 активные валюты и магазин из 6 предметов. Ranked, сезоны, лиги, друзья, IAP, гача, Battle Pass и полный watchOS-клиент идут в Alpha/Beta. Точный контент — `docs/07-roadmap/CONTENT_MANIFEST.md`.
 
 ### Этап 2 — Expansion
 Бридинг с рынком, гибриды, сезонные чемпионаты, кланы, Battle Pass.

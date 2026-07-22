@@ -187,7 +187,7 @@ effectivePower = baseStats + techCardsPower + gearPower - penaltyForOverlevel
 
 | Категория | Объём в MVP | Полное видение |
 |---|---|---|
-| Виды существ (база) | 1 вид / 3 элементальных варианта | 30+ |
+| Виды существ (база) | 3 разных вида: Fire/Water/Earth | 30+ |
 | Элементы (стихии) | **3 (Fire/Water/Earth)** — Air в фазе 2 (audit B6) | 7 (+Air/Light/Dark/Arcane) |
 | Гибриды в MVP | 1 (Steam = Fire+Water) | все 10 (см. `BALANCE.md §2`) |
 | Эволюционные ветви | 3 | 3 × расширенные формы |

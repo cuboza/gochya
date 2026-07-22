@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GOCHYA — Animated UI Prototype</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-element="fire">
+  <main class="showcase">
+    <header class="showcase__header">
+      <div>
+        <p class="eyebrow">INTERACTIVE CONCEPT · V1</p>
+        <h1>GOCHYA</h1>
+        <p class="subtitle">Живой питомец — на телефоне и запястье</p>
+      </div>
+      <div class="element-switcher" role="group" aria-label="Выбор питомца">
+        <button class="element-chip is-active" data-select="fire"><span>●</span> Fire</button>
+        <button class="element-chip" data-select="water"><span>●</span> Water</button>
+        <button class="element-chip" data-select="earth"><span>●</span> Earth</button>
+        <button class="element-chip" data-select="steam"><span>●</span> Steam</button>
+      </div>
+    </header>
+
+    <section class="devices" aria-label="Макеты устройств">
+      <article class="phone-shell" aria-label="Интерфейс телефона">
+        <div class="phone-screen">
+          <header class="app-bar">
+            <button class="icon-button" aria-label="Меню">☰</button>
+            <div class="player-level"><span>Ур. 12</span><b>2 480 XP</b></div>
+            <button class="icon-button element-badge" aria-label="Стихия">◈</button>
+          </header>
+
+          <section class="pet-stage phone-stage" aria-live="polite">
+            <div class="ambient-orb"></div>
+            <div class="particle-field" data-particles="phone"></div>
+            <div class="creature-wrap">
+              <img class="creature" data-creature alt="Игровой питомец Fire" src="assets/fire.png">
+            </div>
+            <div class="ground-shadow"></div>
+            <div class="pet-copy">
+              <span class="status-dot"></span>
+              <div><strong data-pet-name>Рэй</strong><small data-pet-species>степной терран</small></div>
+            </div>
+          </section>
+
+          <section class="needs-card" aria-label="Потребности">
+            <div class="need" data-need="food" style="--value: 74; --need-color:#f4a259"><span>🍴</span><b>74%</b><small>Еда</small></div>
+            <div class="need" data-need="rest" style="--value: 61; --need-color:#5b8def"><span>◒</span><b>61%</b><small>Сон</small></div>
+            <div class="need" data-need="clean" style="--value: 88; --need-color:#6fe0c6"><span>◆</span><b>88%</b><small>Чистота</small></div>
+            <div class="need" data-need="mood" style="--value: 82; --need-color:#ff8fb1"><span>♥</span><b>82%</b><small>Настрой</small></div>
+          </section>
+
+          <section class="action-panel">
+            <div class="section-title"><span>Быстрый уход</span><small data-feedback>Рэй чувствует себя хорошо</small></div>
+            <div class="care-grid">
+              <button class="care-button" data-action="food"><span>🍴</span>Кормить</button>
+              <button class="care-button" data-action="clean"><span>✦</span>Мыть</button>
+              <button class="care-button" data-action="mood"><span>♥</span>Играть</button>
+              <button class="care-button" data-action="rest"><span>◒</span>Спать</button>
+            </div>
+          </section>
+
+          <nav class="bottom-nav" aria-label="Основная навигация">
+            <button class="nav-item is-active"><span>⌂</span>Дом</button>
+            <button class="nav-item"><span>◇</span>Инвентарь</button>
+            <button class="nav-item"><span>⚔</span>PvP</button>
+            <button class="nav-item"><span>⌁</span>Бридинг</button>
+            <button class="nav-item"><span>◎</span>Профиль</button>
+          </nav>
+        </div>
+      </article>
+
+      <article class="watch-wrap" aria-label="Интерфейс часов">
+        <div class="watch-strap watch-strap--top"></div>
+        <div class="watch-shell">
+          <div class="watch-screen">
+            <div class="watch-time">10:28</div>
+            <div class="watch-arcs" aria-hidden="true">
+              <i class="arc arc--food"></i><i class="arc arc--rest"></i>
+              <i class="arc arc--clean"></i><i class="arc arc--mood"></i>
+            </div>
+            <section class="pet-stage watch-stage">
+              <div class="ambient-orb"></div>
+              <div class="particle-field" data-particles="watch"></div>
+              <div class="creature-wrap">
+                <img class="creature" data-creature alt="Игровой питомец Fire" src="assets/fire.png">
+              </div>
+              <div class="ground-shadow"></div>
+            </section>
+            <div class="watch-pet-name" data-pet-name>Рэй</div>
+            <div class="watch-actions">
+              <button data-watch-action="care" aria-label="Уход">✦</button>
+              <button class="dojo-button" data-watch-action="dojo" aria-label="Dojo"><span>⚡</span><b>DOJO</b></button>
+              <button data-watch-action="pvp" aria-label="PvP">⚔</button>
+            </div>
+            <div class="vitality"><span></span><b>Vitality 67%</b></div>
+          </div>
+          <div class="watch-crown"></div>
+        </div>
+        <div class="watch-strap watch-strap--bottom"></div>
+        <p class="watch-hint" data-watch-feedback>Коснись Dojo</p>
+      </article>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

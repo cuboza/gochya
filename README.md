@@ -66,6 +66,11 @@
 |---|---|
 | `ART_BIBLE.md` | Визуальный стиль, палитра, ассеты, пайплайн под 3 рантайма |
 | `UX_UI.md` | UX для круглого и прямоугольного экранов, companion-UI |
+| `artifacts/GOCHYA_UI_CONCEPT_V1.md` | Визуальный mockup телефона, Wear OS и Fire-персонажа |
+| `artifacts/GOCHYA_CONCEPT_PACK_V2.md` | Разные виды стихий и полный набор UI concept sheets |
+| `artifacts/ELEMENTAL_CREATURES_MATURE_V2.md` | Промежуточный, более фэнтезийный character direction (устарел) |
+| `artifacts/ELEMENTAL_CREATURES_GROUNDED_V3.md` | Канонический grounded character direction для MVP-стихий |
+| `prototypes/animated-ui/` | Интерактивный макет телефона и Wear OS с анимированными персонажами |
 
 ### 🗺 План (`docs/07-roadmap/`)
 
