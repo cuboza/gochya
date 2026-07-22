@@ -41,7 +41,7 @@
 | Realtime | web_socket_channel |
 | Локальная БД | Drift (SQLite) или Isar |
 | Health (iOS) | healthKit через `health` package |
-| Health (Android) | Google Fit / Samsung Health Plugin |
+| Health (Android) | Health Connect (основной агрегатор); Google Fit API не использовать для новых пользователей |
 | IAP (iOS) | StoreKit 2 via `in_app_purchase` |
 | IAP (Android) | Google Play Billing + Galaxy Store IAP |
 | Core-интеграция | FFI (`dart:ffi`) к Shared Core |
@@ -97,7 +97,7 @@ companion/
 │   ├── services/
 │   │   ├── api_client.dart            ← dio + retrofit
 │   │   ├── auth_service.dart
-│   │   ├── health_service.dart        ← HealthKit / Google Fit
+│   │   ├── health_service.dart        ← HealthKit / Health Connect
 │   │   ├── sync_service.dart          ← часы ↔ телефон ↔ сервер
 │   │   ├── watch_connection.dart      ← WatchConnectivity / WearableAPI
 │   │   ├── iap_service.dart

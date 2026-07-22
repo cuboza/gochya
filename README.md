@@ -42,6 +42,8 @@
 | `CLIENT_WEAROS.md` | **Нативный** клиент на Galaxy Watch / Wear OS (**Kotlin + Filament**) |
 | `CLIENT_COMPANION.md` | Flutter companion-приложение для телефона |
 | `BACKEND.md` | Сервер, БД, матчмейкинг, IAP-валидация, античит |
+| `OFFLINE_SYNC.md` | Идемпотентный журнал офлайн-команд и разрешение конфликтов |
+| `HEALTH_DATA_CONTRACT.md` | Source-of-truth, provenance и дедупликация health-данных |
 
 ### 🧩 Shared Core (`docs/04-core/`)
 
@@ -49,6 +51,7 @@
 |---|---|
 | `CORE_SPEC.md` | Контракт ядра: типы, public API, сериализация, инварианты |
 | `CORE_FORMULAS.md` | Все формулы собраны в одном месте (баланс, урон, мутации, vitality) |
+| `CORE_ABI.md` | Стабильный C ABI для Go, Swift, Kotlin/JNI и Dart FFI |
 
 ### 🔒 Безопасность и баланс (`docs/05-security/`)
 
@@ -69,8 +72,11 @@
 | Файл | Содержание |
 |---|---|
 | `MVP.md` | Скоуп вертикального среза, критерии готовности |
+| `CONTENT_MANIFEST.md` | Единый объём существ, ударов, предметов и ассетов по фазам |
 | `ROADMAP.md` | Alpha → Beta → Soft launch → Global, метрики-gate |
 | `RISKS.md` | Риски и стратегии снижения |
+| `AUDIT_REMEDIATION_PLAN.md` | Рабочий план устранения находок аудита и Sprint 0 gate'ов |
+| `SPRINT0_GATES.md` | Проверяемые чек-листы, evidence и fail-actions для технологических gate'ов |
 
 ---
 

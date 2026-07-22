@@ -16,11 +16,11 @@
 
 | Роль | Главные файлы | Типичные задачи |
 |---|---|---|
-| **Core Engineer** | `docs/04-core/CORE_SPEC.md`, `CORE_FORMULAS.md` | Реализация Shared Core на C#/Rust, формулы, геном, бой |
+| **Core Engineer** | `docs/04-core/CORE_SPEC.md`, `CORE_FORMULAS.md` | Реализация Shared Core на Rust, формулы, геном, бой |
 | **watchOS Engineer** | `docs/03-architecture/CLIENT_WATCHOS.md` | SwiftUI/WatchKit + SpriteKit, CoreMotion, HealthKit |
 | **Wear OS Engineer** | `docs/03-architecture/CLIENT_WEAROS.md` | Kotlin + Compose for Wear OS + Filament, SensorManager, Samsung Health |
 | **Companion Engineer** | `docs/03-architecture/CLIENT_COMPANION.md` | Flutter, магазин, турниры, родословная, инвентарь |
-| **Backend Engineer** | `docs/03-architecture/BACKEND.md`, `ANTICHEAT.md` | Go/Node + PostgreSQL/Redis, матчмейкинг, IAP, античит |
+| **Backend Engineer** | `docs/03-architecture/BACKEND.md`, `ANTICHEAT.md` | Go + PostgreSQL/Redis, матчмейкинг, IAP, античит |
 | **Game Designer** | `docs/01-design/GDD.md`, `docs/02-mechanics/*`, `BALANCE.md` | Баланс, формулы, дроп-таблицы, ивенты |
 | **ML Engineer** | `docs/02-mechanics/MECHANIC_COMBAT_RECORDING.md`, `MECHANIC_HEART_GATE.md` | Классификатор ударов, edge-ML, DTW |
 | **Technical Artist** | `docs/06-art/ART_BIBLE.md` | Ассеты под 3 рантайма, Spine/glTF/Lottie, оптимизация |
@@ -53,7 +53,7 @@
 
 ### 2.4. Приватность (privacy-first, финализировано в audit S1)
 - Сырые данные сенсоров (сырой сигнал акселерометра, гироскопа, raw ЭКГ/пульс) **никогда не покидают устройство**.
-- На сервер уходят только производные метрики: 4 числа пульса (`HR_present/mean/delta/confidence`), нормированные дневные агрегаты (шаги/сон/калории), `client_entropy` (одно float), `replay_hash` (SHA-256 от метрик), ID карт, геном.
+- На сервер уходят только производные метрики: 4 числа пульса (`HR_present/mean/delta/confidence`), нормированные дневные агрегаты, schema-versioned feature summary Dojo без временного ряда, `replay_hash`, ID карт и геном. Dojo payload привязан к server nonce, platform attestation и зарегистрированному device key (`ANTICHEAT.md §2.1, §3.3a–b`).
 - **Чего НЕТ в античите:** серверной спектральной/гироскопической валидации формы удара (физически невозможна без передачи сигнала). См. `ANTICHEAT.md §3.7`.
 - Явный consent на доступ к сенсорам и health-данным. Отказ → деградированный режим без блокировок.
 
@@ -109,10 +109,10 @@
 2. Реализовать типы из `CORE_SPEC.md`: `Genome`, `Pet`, `TechniqueCard`, `HeartRateEvidence`, `DailyActivitySnapshot`, `MatchResult`.
 3. Реализовать формулы из `CORE_FORMULAS.md`: `quality_score`, `validate_heart`, `compute_vitality`, `simulate_combat` (включая AI выбора карт из §5.2-extended).
 4. Покрыть ядро unit + property + golden тестами на детерминизм: одинаковые входы → одинаковые выходы на всех платформах.
-5. CI: сборка ядра под 5 таргетов (`aarch64-apple-ios`, `aarch64-apple-watchos`, `x86_64-apple-ios-simulator`, `aarch64-linux-android`, `x86_64-unknown-linux-gnu`).
+5. CI: сборка ядра под 5 deployment-таргетов (`aarch64-apple-ios`, `arm64_32-apple-watchos`, iOS Simulator, `aarch64-linux-android`, `x86_64-unknown-linux-gnu`) плюс native test target. Точный simulator target фиксируется build-матрицей Xcode.
 
 ### Этап 1 — MVP-вертикаль (см. `docs/07-roadmap/MVP.md`)
-Скоуп (актуальный, audit B7): 3 стартовых существа (Fire/Water/Earth), 4 потребности, 3 перехода эволюции (Egg→Baby→Teen→Adult), 1 тренировка каждого типа, запись ударов с пульс-античитом, **полный PvP** (casual + ranked + сезоны + лиги Bronze→Master), базовый бридинг (наследование + мутации + 1 гибрид Steam), магазин из 10+ предметов, гача, Battle Pass (30 уровней), companion с магазином/инвентарём/лидербордом/родословной.
+Скоуп vertical slice: 1 базовый вид в 3 элементальных вариантах, 4 потребности, Egg→Baby→Teen→Adult, 1 Strength-мини-игра, 3 типа ударов с heart gate на Wear OS, casual PvP, базовый бридинг с 1 гибридом Steam, 2 активные валюты и магазин из 6 предметов. Ranked, сезоны, лиги, друзья, IAP, гача, Battle Pass и полный watchOS-клиент идут в Alpha/Beta. Точный контент — `docs/07-roadmap/CONTENT_MANIFEST.md`.
 
 ### Этап 2 — Expansion
 Бридинг с рынком, гибриды, сезонные чемпионаты, кланы, Battle Pass.

@@ -340,6 +340,16 @@ CREATE TABLE anticheat_events (
 );
 ```
 
+### 4.1. Версионирование JSONB и миграции
+
+- Каждый объект Shared Core хранится в envelope `{schema_version, data}`.
+- Backend не десериализует JSONB без проверки версии.
+- Core предоставляет последовательные чистые миграции `vN → vN+1`; пропуск версии выполняется цепочкой.
+- DB rollout: dual-read/new-write → backfill → удаление старого reader отдельным релизом.
+- Неизвестная новая версия возвращает `SCHEMA_MISMATCH`, а не partial object или default values.
+- Snapshot хранит `core_build` и checksum канонического payload для диагностики.
+- CI содержит fixture каждой поддерживаемой версии и проверяет upgrade до текущей версии byte-for-byte.
+
 - Лидерборды — в Redis Sorted Sets (ZADD/ZREVRANGE).
 - Сессии — Redis с TTL.
 - Rate limits — Redis token bucket.
@@ -381,8 +391,8 @@ POST   /me/pets/:id/sleep                                 → Pet
 
 ### Training / Dojo
 ```
-POST   /dojo/preflight       { }                         → { nonce, expiresAt }
-POST   /dojo/submit          { nonce, metrics, heartEvidence, clientEntropy }
+POST   /dojo/preflight       { deviceId, appBuild }      → { nonce, challenge, evidenceSchemaVersion, expiresAt }
+POST   /dojo/submit          { nonce, metrics, heartEvidence, featureSummary, classifierVersion, appBuild, attestation, payloadSignature }
                                                             → TechniqueCard
 GET    /me/techniques                                    → TechniqueCard[]
 POST   /me/techniques/equip   { cardIds[], signatureIdx } → Loadout
@@ -393,15 +403,17 @@ POST   /me/techniques/equip   { cardIds[], signatureIdx } → Loadout
 >   replay-detection из §3.3 нереализуема. Прежде эндпоинт возвращал
 >   `{ baseline, contactConfidence }`, хотя обе величины измеряются **на устройстве**
 >   и серверу в этот момент неизвестны.
-> - `submit` принимает `nonce` и `clientEntropy` (одно число, §3.4). Прежнее поле
+> - `submit` принимает `nonce`, versioned `featureSummary`, build/classifier version,
+>   platform attestation и подпись канонического payload (§3.3a–b). Прежнее поле
 >   `signalHash` убрано: сервер сам считает
->   `replay_hash = SHA-256(nonce ‖ metrics ‖ heartEvidence)`, доверять хэшу
+>   `replay_hash = SHA-256(nonce ‖ schemaVersion ‖ metrics ‖ heartEvidence ‖ featureSummary)`, доверять хэшу
 >   от клиента бессмысленно.
 > - `signatureId` → `signatureIdx` (0..4): signature — свойство лоадаута,
 >   а не карты (`CORE_SPEC.md` §3.6).
 >
 > Возможные отказы `submit`: `ANTICHEAT_REJECTED` с причиной
-> (`heart_gate_failed` | `replay_detected` | `nonce_invalid` | `rate_limited`).
+> (`heart_gate_failed` | `attestation_failed` | `signature_invalid` |
+> `evidence_inconsistent` | `replay_detected` | `nonce_invalid` | `rate_limited`).
 
 ### PvP
 ```

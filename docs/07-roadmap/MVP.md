@@ -11,21 +11,22 @@
 Критерий успеха MVP (внутреннее тестирование):
 - Полный цикл играбелен от яйца до первой дуэли.
 - Все 3 USP-механики работают: запись удара, бридинг (базовый), симбиоз с активностью.
-- Производительность в бюджете на реальных устройствах (Galaxy Watch 6/7, Apple Watch S9).
+- Производительность MVP в бюджете на реальных устройствах Galaxy Watch 6/7.
+- watchOS-спайк собирается и запускается на Apple Watch S9; полноценный клиент остаётся в Beta.
 - D1 retention на закрытом тесте ≥ 35%.
 
 ---
 
 ## 2. СКОУП MVP (✅ включено)
 
-### Shared Core (полностью)
-- ✅ Все типы из `CORE_SPEC.md`: Genome, Pet, TechniqueCard, HeartRateEvidence, DailyActivitySnapshot, Match.
-- ✅ Все формулы из `CORE_FORMULAS.md`.
-- ✅ FFI под iOS + Android.
+### Shared Core (вертикальный срез)
+- ✅ Типы, нужные вертикальному сценарию: Genome, Pet, TechniqueCard, HeartRateEvidence, DailyActivitySnapshot, Match.
+- ✅ Формулы, вызываемые MVP-сценарием; полный охват `CORE_FORMULAS.md` переносится в Alpha.
+- ✅ FFI под iOS/Android phone и Wear OS; watchOS — только Gate 2 spike.
 - ✅ Unit + property + golden tests.
 
 ### Геймплей
-- ✅ 1 стартовое существо (с выбором из 3 стихий: Fire / Water / Earth).
+- ✅ 1 базовый вид существа в 3 элементальных вариантах: Fire / Water / Earth.
 - ✅ 4 потребности (Hunger, Energy, Hygiene, Mood).
 - ✅ Действия ухода: кормить, чистить, спать, играть.
 - ✅ Decay в реальном времени + night multiplier.
@@ -35,12 +36,12 @@
 - ✅ 1 эволюционная ветвь на стихию.
 
 ### Тренировки
-- ✅ 1 мини-игра каждого типа (Strength/Agility/Endurance/Focus).
+- ✅ 1 мини-игра Strength. Остальные типы используют серверные задания без отдельной мини-игры до Alpha.
 
 ### Dojo (USP-1) — только на часах
 - ✅ Запись удара (акселерометр + гироскоп + пульс) — **эксклюзив часов**.
 - ✅ Pre-flight + heart gate.
-- ✅ Классификация DTW по 5 типам ударов.
+- ✅ Классификация DTW по 3 типам ударов: Jab / Hook / Uppercut.
 - ✅ Technique Cards создаются и сохраняются.
 - ✅ Signature slot (1 карта).
 - ✅ Дневной лимит 10.
@@ -53,9 +54,6 @@
 ### PvP
 - ✅ Лоадаут-конструктор (питомец + 5 карт).
 - ✅ Быстрый матч (casual).
-- ✅ Рейтинговая дуэль (ranked с ELO).
-- ✅ Сезонный чемпионат (упрощённый: 1 сезон, лидерборд, награды).
-- ✅ Лиги (Bronze → Master).
 - ✅ Серверный авто-баттлер.
 - ✅ Replay-анимация боя.
 
@@ -75,16 +73,12 @@
 - ✅ 1 гибрид (Steam = Fire + Water) для демо.
 
 ### Экономика
-- ✅ 4 валюты (Koins, Gems, Vitality, Crowns).
-- ✅ Магазин из ~10 предметов (еда, расходники, базовая косметика).
-- ✅ 1 гача-баннер (расходники + косметика).
-- ✅ IAP через Galaxy Store + App Store + Google Play.
-- ✅ Battle Pass (1 сезон, 30 уровней, бесплатные + премиум дорожки).
+- ✅ 2 активные валюты: Koins и Vitality. Типы Gems/Crowns остаются в core, но не участвуют в MVP-экономике.
+- ✅ Магазин из 6 предметов за Koins (еда, расходники, базовая косметика).
+- ✅ Double-entry ledger и идемпотентная выдача наград.
 
 ### Социальное
-- ✅ Друзья (добавление по коду).
-- ✅ Спарринг с друзьями.
-- ✅ Глобальный лидерборд.
+- ❌ Не входит в MVP; друзья, лидерборды и социальный спарринг начинаются в Alpha.
 
 ### Платформы
 
@@ -92,17 +86,19 @@
 > Часовых платформ в MVP одна (Wear OS); watchOS — в Beta. Прежняя формулировка
 > «companion для тяжёлых экранов» устарела: телефон несёт основную аудиторию.
 
-- ✅ **Телефон (Flutter) — полноценный клиент**: питомец, уход, тренировки, симбиоз, PvP (единый пул), бридинг, родословная, магазин, гача, Battle Pass. **Весь цикл проходим без часов** (кроме Dojo). Это приоритет 1 по охвату.
+- ✅ **Телефон (Flutter) — полноценный клиент**: питомец, уход, Strength-тренировка, симбиоз, casual PvP, бридинг, инвентарь и базовый магазин. **Весь цикл проходим без часов** (кроме Dojo). Это приоритет 1 по охвату.
 - ✅ Wear OS-клиент (**нативный Kotlin + Filament**) — **единственная платформа часов в MVP** (audit S3: Unity заменён). Даёт Dojo и трекинг с запястья.
 - 🔜 watchOS-клиент (**нативный Swift + SpriteKit**) — **Beta**, не MVP. Но спайк сборки ядра под `arm64_32-apple-watchos` обязателен уже в Sprint 0 (Gate 2): он архитектурный и способен изменить план.
 - ✅ Backend (Go + PostgreSQL + Redis).
 
 ### Контент
-- ✅ 3 существа (по 1 на стартовую стихию) + 1 гибрид.
-- ✅ 5 типов ударов.
-- ✅ 20 косметических предметов.
-- ✅ 15 предметов снаряжения.
-- ✅ 10 расходников.
+- ✅ 1 базовый вид существа в 3 элементальных вариантах + 1 гибридная форма Steam.
+- ✅ 3 типа ударов.
+- ✅ 3 косметических предмета.
+- ✅ 3 предмета снаряжения.
+- ✅ 3 расходника.
+
+Точный список и бюджеты ассетов — `CONTENT_MANIFEST.md`. Этот файл является source of truth для количества контента по фазам.
 
 ---
 
@@ -119,16 +115,21 @@
 - ❌ Подписка GOCHYA+.
 - ❌ Реклама (reward).
 - ❌ Дополнительные локализации (только EN/RU).
+- ❌ Ranked PvP, ELO, лиги и сезонный чемпионат.
+- ❌ Гача, Battle Pass, Gems/Crowns в активной экономике.
+- ❌ IAP и store webhooks.
+- ❌ Друзья, спарринг с друзьями и глобальный лидерборд.
+- ❌ Отдельные мини-игры Agility/Endurance/Focus.
 
 ---
 
 ## 4. КРИТЕРИИ ГОТОВНОСТИ MVP (Definition of Done)
 
 ### Технические
-- [ ] Shared Core: 100% формул из `CORE_FORMULAS.md` реализованы и покрыты тестами.
+- [ ] Shared Core: 100% формул, вызываемых MVP vertical slice, реализованы и покрыты тестами; полный каталог закрывается в Alpha.
 - [ ] CI green для всех **6 таргетов** (`ARCHITECTURE.md` §4: iOS, watchOS `arm64_32`, iOS-sim, Android, server, tests).
 - [ ] Golden tests: одинаковый результат боя на всех платформах.
-- [ ] Golden tests классификатора: `technique_type`, `precision` **и `peak_accel`** совпадают на обеих платформах (`MECHANIC_ML_CLASSIFIER.md` §4).
+- [ ] Golden tests классификатора: `technique_type`, `precision` **и `peak_accel`** совпадают между эталонной реализацией и Wear OS (`MECHANIC_ML_CLASSIFIER.md` §4). Паритет watchOS добавляется в Beta.
 - [ ] Performance на Galaxy Watch 6: ≤ **2** сек cold start, **60** FPS, ≤ 2%/час в фоне (`CLIENT_WEAROS.md` §10).
 - [ ] Ядро собирается под `arm64_32-apple-watchos` и вызывается из Swift (Gate 2) — **без полного watchOS-клиента**, он в Beta.
 - [ ] Инвариант баланса стихий проверен **на каждом релизном наборе**, включая MVP-тройку (`CORE_SPEC.md` §5 №10).
@@ -140,7 +141,6 @@
 - [ ] Бридинг: скрещивание → яйцо → вылупление.
 - [ ] Симбиоз: шаги/сон учитываются, Vitality начисляется (на телефоне — с деградацией метрик запястья, `MECHANIC_SYNERGY.md` §9а).
 - [ ] PvP: телефонный и часовой игрок попадают в один пул и бьются между собой.
-- [ ] IAP работают на всех 3 сторах.
 - [ ] Онбординг проходит новый игрок за ≤ 12 минут (флоу начинается на телефоне, `UX_UI.md` §8).
 
 ### Античит
@@ -160,18 +160,18 @@
 
 | Роль | Кол-во | Главные задачи |
 |---|---|---|
-| **Core Engineer** (Rust) | 1–2 | Ядро, формулы, FFI |
-| **watchOS Engineer** | 1 | SwiftUI, SpriteKit, CoreMotion, HealthKit |
+| **Core Engineer** (Rust) | 1 | Ядро vertical slice, формулы, FFI |
+| **watchOS Engineer** (spike, part-time) | 0.25 | Только Gate 2: SpriteKit-прототип и проверка Rust FFI; полный клиент — Beta |
 | **Wear OS Engineer** (Kotlin) | 1–2 | Kotlin, Filament, SensorManager, Samsung Health |
-| **Companion / Flutter** | 1 | Flutter, IAP, глубокие экраны |
-| **Backend Engineer** | 1–2 | Go, API, матчмейкинг, IAP-валидация |
+| **Companion / Flutter** | 1–2 | Flutter, основной игровой цикл, инвентарь и базовый магазин |
+| **Backend Engineer** | 1–2 | Go, API, casual matchmaking, ledger и синхронизация |
 | **ML Engineer** (part-time) | 0.5 | DTW-классификатор ударов |
-| **Game Designer** | 1 | Баланс, формулы, контент |
+| **Game Designer** (part-time) | 0.5 | Баланс vertical slice и acceptance playtests |
 | **Technical Artist** | 1 | Модели, анимации, экспорт под 3 рантайма |
-| **2D Artist** | 1 | UI, иконки, концепты |
+| **2D Artist** (part-time) | 0.5 | UI, иконки, концепты |
 | **QA** | 1 | Тест-планы, device testing |
 
-**Итого:** ~10–12 человек full-time на 16 недель + overlap с pre-production.
+**Итого:** ~8–11 FTE на 16 недель, включая part-time роли. Это provisional estimate: после Gate 1–4 команда и длительность пересчитываются по фактическим данным.
 
 ---
 
@@ -192,20 +192,17 @@
 - Backend: scaffolding, БД-схема, auth.
 
 ### Sprint 1–4 (нед 5–8): Core features
-- Shared Core: все формулы, breeding, combat, synergy.
-- watchOS: главный экран, питомец, уход, тренировки.
+- Shared Core: формулы vertical slice, breeding, casual combat, synergy.
 - Wear OS: то же на нативном Kotlin/Filament.
 - Backend: профили, инвентарь, дуэль (end-to-end).
 
 ### Sprint 5–8 (нед 9–12): USP-механики
-- Dojo: запись удара + heart gate на обеих платформах.
+- Dojo: запись удара + heart gate на Wear OS; watchOS-реализация — Beta.
 - Симбиоз: чтение Health/Samsung Health, кольца.
-- Companion: магазин, инвентарь, лидерборд, бридинг.
-- IAP-валидация на всех 3 сторах.
+- Companion: базовый магазин, инвентарь и бридинг.
 
 ### Sprint 9–12 (нед 13–16): Polish & Beta-prep
 - Бридинг end-to-end.
-- Battle Pass.
 - Onboarding.
 - Performance-оптимизация.
 - Bug bash, internal playtest.
@@ -233,10 +230,29 @@
 **USP-1**. Вместе они доказывают, что телефонный игрок конкурентоспособен, а часы —
 осмысленный, но не обязательный апгрейд.
 
+### Acceptance matrix vertical slice
+
+| Сценарий | Проверяемый результат | Критерий PASS |
+|---|---|---|
+| Новый телефонный игрок | Создан account и первый питомец | retry не создаёт второй профиль или питомца |
+| Care offline → reconnect | Команды применены сервером | повтор batch не удваивает эффект; canonical revision одинакова после retry |
+| Activity sync | Vitality начислена | повтор snapshot не увеличивает начисление; cap соблюдён |
+| Игровая карта без часов | Карта появилась в inventory | карта выдана серверной транзакцией и входит в loadout |
+| Casual PvP | Получен replay и награда | один seed даёт один result; confirm/retry не дублирует награду |
+| Breeding | Создано яйцо и затем питомец | стоимость списана один раз; повтор hatch не создаёт второго питомца |
+| Wear OS Dojo | Записанная карта видна на телефоне | attestation/signature/nonce проверены; raw signal отсутствует в network/logs |
+| Dojo replay/tamper | Запрос отклонён | reused nonce и изменённый подписанный payload не создают карту |
+| Потеря сети после commit | Клиент восстанавливает результат | idempotent retry возвращает исходную карту/операцию |
+| Schema mismatch | Управляемая ошибка | нет crash, partial write или silent defaults |
+
+Полные измерительные процедуры аппаратных gate'ов находятся в `SPRINT0_GATES.md`.
+
 ---
 
 ## 8. СВЯЗАННЫЕ ДОКУМЕНТЫ
 
 - `ROADMAP.md` — что после MVP.
 - `RISKS.md` — риски MVP.
+- `CONTENT_MANIFEST.md` — нормативный объём контента.
+- `SPRINT0_GATES.md` — проверяемые технологические gate'ы.
 - Все `docs/01-design/`, `docs/02-mechanics/`, `docs/03-architecture/`, `docs/04-core/`.

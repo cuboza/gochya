@@ -457,4 +457,4 @@ object CoreBridge {
 - `docs/02-mechanics/MECHANIC_HEART_GATE.md` — пульс-валидация.
 - `docs/02-mechanics/MECHANIC_ML_CLASSIFIER.md` — классификатор ударов.
 - `docs/02-mechanics/MECHANIC_SYNERGY.md` — Health Services чтение.
-- `docs/07-roadmap/RISKS.md` R2 — Samsung Health partner approval (single point of failure).
+- `docs/07-roadmap/RISKS.md` R16 — Samsung Health partner approval (single point of failure).

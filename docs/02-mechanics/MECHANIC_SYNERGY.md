@@ -212,15 +212,18 @@ dailyGoal     = clamp(dailyGoal, 2500, 18000)        // мягкие грани�
 
 ## 11. ПЛАТФОРМЕННАЯ РЕАЛИЗАЦИЯ
 
+Нормативные source-of-truth, provenance и правила дедупликации определены в
+`docs/03-architecture/HEALTH_DATA_CONTRACT.md`; таблица ниже описывает только API чтения.
+
 | Платформа | Активность | Сон | Тренировки |
 |---|---|---|---|
 | **watchOS** | HealthKit `stepCount` | HealthKit Sleep Analysis | HealthKit Workouts |
 | **Wear OS** | Samsung Health SDK + Health Services `STEPS` | Samsung Health Sleep + `SleepStage` | Health Services `ExerciseType` |
-| **Android (companion)** | Google Fit / Samsung Health | то же | то же |
+| **Android (companion)** | Health Connect | Health Connect | Health Connect (данные приложений-источников, включая Samsung Health) |
 | **iOS (companion)** | HealthKit (bridge) | то же | то же |
 | **Shared Core** | нормализованные метрики → Vitality, gains, бонусы | единая формула |
 
-> ⚠️ **Юридическое:** доступ к HealthKit требует `NSHealthShareUsageDescription`, к Samsung Health — регистрацию в Samsung Health SDK. Учти в плане согласований.
+> ⚠️ **Юридическое:** доступ к HealthKit требует `NSHealthShareUsageDescription`, к Samsung Health — регистрацию в Samsung Health SDK. Health Connect требует декларации типов данных и обоснования доступа в Google Play Console. Учти это в плане согласований.
 
 ---
 

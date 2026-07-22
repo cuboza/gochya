@@ -22,13 +22,13 @@
 ┌──────────────────────────────────────────────────────┐
 │ 1. Edge device validation (на часах перед отправкой) │
 │    • contactConfidence check                         │
-│    • signature of sensor data                        │
+│    • официальный build + platform attestation        │
 └──────────────────────────────────────────────────────┘
                         ▼
 ┌──────────────────────────────────────────────────────┐
 │ 2. Transport security                                │
 │    • TLS 1.3 / certificate pinning                   │
-│    • HMAC подпись payload device-key                 │
+│    • подпись payload аттестованным device key        │
 └──────────────────────────────────────────────────────┘
                         ▼
 ┌──────────────────────────────────────────────────────┐
@@ -50,6 +50,22 @@
 └──────────────────────────────────────────────────────┘
 ```
 
+### 2.1. Threat model и граница доверия
+
+| Атакующий | Возможности | Защита | Остаточный риск |
+|---|---|---|---|
+| Повторяющий запросы клиент | Повтор валидного payload | server nonce, idempotency, replay cache | низкий |
+| MITM | Чтение/изменение трафика | TLS, pinning как дополнительный слой, подпись payload | компрометация устройства обходит pinning |
+| Модифицированный APK/app | Произвольные `metrics`, `heartEvidence`, entropy и type | Play Integrity / App Attest, attested device key, version policy | аттестация снижает риск, но не доказывает физический удар |
+| Root/jailbreak + runtime hooks | Подмена sensor callbacks и памяти процесса | integrity verdict, risk score, лимиты наград, behavioral review | полностью исключить spoofing без доверенного hardware pipeline нельзя |
+| Bot farm / multi-account | Массовые официальные клиенты и автоматизация | rate limits, account/device graph, economy caps | false positives требуют апелляции |
+
+**Граница доверия:** все числовые признаки Dojo являются клиентскими утверждениями.
+Heart gate подтверждает правдоподобную нагрузку только на немодифицированном клиенте;
+он не является криптографическим доказательством пульса или удара. Attestation
+подтверждает происхождение приложения и состояние окружения, но также не заверяет
+физический смысл sensor data.
+
 ---
 
 ## 3. DOJО — ВАЛИДАЦИЯ ЗАПИСИ УДАРА
@@ -70,6 +86,7 @@
 | Условие | Вердикт | Действие |
 |---|---|---|
 | `heartGate` не пройден | REJECTED | мягкое сообщение, карта не создаётся |
+| Нет допустимого platform-attestation verdict или подпись payload неверна | PENDING/REJECTED | временный сбой → локальная очередь; постоянный/скомпрометированный verdict → отказ |
 | `nonce` неизвестен, истёк или уже использован | REJECTED | лог `replay_nonce_invalid` |
 | `replay_hash` уже встречался | REJECTED | лог `replay_detected` → санкция §11 |
 | Превышен `DOJO_DAILY_LIMIT` или интервал < 1 мин | REJECTED | сообщение «лимит на сегодня» |
@@ -98,7 +115,9 @@ verdict:
 ```
 heartGate = (present >= 0.80) AND (mean >= baseline+8) AND (mean >= 55) AND (confidence >= 0.85)
 ```
-Пульс нельзя подделать без часов на живом теле — поэтому это шлюз, а не слагаемое.
+На официальном некомпрометированном клиенте пульс — сильный сигнал контакта с телом,
+поэтому он используется как шлюз. На root/jailbreak или модифицированном клиенте
+значения могут быть подменены; такие клиенты отсекаются attestation policy §2.1.
 
 > ⚠️ **Что именно доказывает пульс.** Он подтверждает, что часы надеты на живом теле
 > в состоянии нагрузки. Он **не** доказывает, что был нанесён удар: прыжки на месте
@@ -112,9 +131,38 @@ heartGate = (present >= 0.80) AND (mean >= baseline+8) AND (mean >= 55) AND (con
 ### 3.3. Replay-detection — серверный, жёсткий отказ (§3.0)
 - **Сервер выдаёт одноразовый nonce** в `/dojo/preflight` (клиент НЕ генерирует — исправление аудита P3).
 - Nonce имеет TTL 5 минут, валидируется один раз, инвалидируется после использования.
-- Replay-hash = `SHA-256(nonce || metrics_canonical_json || heart_evidence_canonical_json)`.
+- Replay-hash = `SHA-256(nonce || evidence_schema_version || metrics_canonical_json || heart_evidence_canonical_json || feature_summary_canonical_json)`.
 - Сервер хранит hash в Redis с TTL 90 дней. Повтор того же hash → REJECTED + флаг.
 - Что НЕ передаётся: сырой сигнал, FFT-бины, спектр. Только каноникализированные производные метрики.
+
+### 3.3a. Attestation и подпись Dojo payload
+
+- `/dojo/preflight` возвращает `nonce`, `expiresAt`, `evidenceSchemaVersion` и случайный `challenge` для platform attestation.
+- Wear OS MVP использует Play Integrity; конкретный допустимый набор verdict'ов фиксируется только после Gate 1/3 на целевых часах.
+- iOS/watchOS в Beta использует App Attest, а при документированном отсутствии поддержки на конкретном target — DeviceCheck с более низким trust tier.
+- При регистрации устройства клиент создаёт аппаратно защищаемый ключ, если платформа это позволяет. Сервер хранит public key и привязку к account/device.
+- `/dojo/submit` подписывает канонический payload: `nonce`, schema version, timestamps, metrics, heart evidence, feature summary, classifier version и app build.
+- Недоступность attestation-сервиса не выдаёт карту: запись хранится локально как `PENDING` до истечения nonce либо пользователь получает безопасный retry.
+- Attestation не превращает client features в доказанный raw signal. Она лишь повышает уверенность, что признаки вычислил разрешённый build в приемлемом окружении.
+
+### 3.3b. Privacy-safe feature summary
+
+Вместо одного `client_entropy` клиент передаёт фиксированный schema-versioned summary без временного ряда:
+
+```text
+sample_count_accel, sample_count_gyro, sample_count_hr
+duration_ms, monotonic_start_ms, monotonic_end_ms
+accel_peak, accel_rms, gyro_peak, gyro_rms
+entropy_16bin, zero_crossing_count
+hr_present_ratio, hr_mean, hr_delta, contact_confidence
+classifier_id, classifier_version, technique_type, confidence
+```
+
+Сервер проверяет внутреннюю согласованность: длительность и sample counts, физические
+диапазоны, монотонность времени, согласованность summary с итоговыми metrics и
+разрешённую версию классификатора. Summary не позволяет восстановить исходный жест
+и не заменяет raw-signal validation; его задача — сделать дешёвую произвольную
+подмену сложнее и наблюдаемее.
 
 ### 3.4. Клиентская энтропия (20 баллов в скоринге)
 - Клиент считает **Shannon entropy** на magnitude ускорения (`|a| = sqrt(ax²+ay²+az²)`) по окну записи.
@@ -153,7 +201,7 @@ anomaly_check:
 - ❌ Серверной верификации типа удара (требует сырой сигнал).
 - ❌ Криптографической подписи Health-данных (HealthKit/Samsung Health не предоставляют подписи — см. §5.5).
 
-**Обоснование:** privacy-first — архитектурный принцип проекта (см. `00-MASTER-PROMPT.md §2.4`). Античит основан на том, что **подделать пульс на живом теле нельзя**, а остальные слои — вспомогательные для отсечения дешёвых автоматизированных читов. Глубокая защита от целенаправленных читеров достигается через экономические механизмы (cap качества, матчмейкинг по effective power) и ручной review паттернов.
+**Обоснование:** privacy-first — архитектурный принцип проекта (см. `00-MASTER-PROMPT.md §2.4`). Античит не доказывает физический удар: он сочетает attestation, heart gate, согласованность производных признаков, лимиты и post-factum анализ. Глубокая защита от целенаправленных читеров без передачи raw signal недостижима; остаточный риск принимается и ограничивается экономическими caps и trust tiers.
 
 ---
 
@@ -185,8 +233,8 @@ anomaly_check:
 ## 5. СИМБИОЗ — ВАЛИДАЦИЯ АКТИВНОСТИ
 
 ### 5.1. Дедупликация устройств
-- Если часы и телефон шлют данные за один день → приоритет **часам** (точнее).
-- Если несколько часов → приоритет последнему активному.
+- Дедупликация выполняется по source record provenance и overlap, а не грубым правилом «часы побеждают весь день».
+- Нормативный алгоритм — `docs/03-architecture/HEALTH_DATA_CONTRACT.md`.
 
 ### 5.2. Валидация типов активности
 - Samsung Health / HealthKit сами фильтруют «в машине» vs «ходьба».
@@ -251,7 +299,7 @@ transactions:
 ## 9. ТРАНСПОРТ И СЕКРЕТЫ
 
 - **TLS 1.3** обязателен. Certificate pinning в клиенте.
-- **HMAC payload:** каждое устройство имеет уникальный `device_key`, payload подписан.
+- **Подпись payload:** устройство использует зарегистрированный attested key; симметричный секрет, извлекаемый из клиента, не считается границей доверия.
 - Секреты — в Vault/KMS, не в коде/репозитории.
 - SAST в CI: проверка на хардкод ключей, небезопасные паттерны.
 
