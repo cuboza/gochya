@@ -10,6 +10,10 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
+Текущая реализация: ABI `1.0.0` (`0x00010000`), schema `1`. Сгенерированный
+artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
+`cbindgen` при каждой сборке.
+
 ## 2. Разрешённые типы
 
 Через ABI пересекают границу только:
@@ -102,3 +106,22 @@ enum {
 - Ни один exported symbol не содержит Rust-specific ABI types.
 - Address/undefined behavior sanitizers проходят native ABI harness.
 - Golden fixture имеет одинаковые bytes на server, iOS phone и Android/Wear OS; watchOS fixture обязателен в Gate 2.
+
+## 10. Реализованный Sprint 0 surface
+
+Первый стабилизированный ABI-срез экспортирует:
+
+- `gochya_abi_version`;
+- `gochya_validate_heart_v1`;
+- `gochya_quality_score_v1`;
+- `gochya_compute_vitality_v1`;
+- `gochya_derive_technique_v1`.
+
+Все четыре операции используют versioned структуры со `struct_size`, проверяют null,
+schema, enum range и finite float values, возвращают `GochyaStatus`, записывают
+результат через caller-owned out-параметр и защищены `catch_unwind`. Нативный C
+harness находится в `core/tests/abi_smoke.c`, а серверный consumer — в
+`server/internal/corebridge`. `gochya_derive_technique_v1` атомарно возвращает
+тип, редкость, урон, скорость, stamina cost, crit chance и quality, чтобы сервер
+не дублировал формулы карты. Combat ABI добавляется после фиксации компактной
+wire-схемы `MatchV1`; Rust golden combat уже зафиксирован.

@@ -39,7 +39,7 @@
 ## Фаза 4 — Контракты реализации
 
 - [x] Создать `CORE_ABI.md`: `repr(C)`, enum values, opaque handles, ownership, buffers, errors, threading и ABI version.
-- [ ] Добавить генерируемый `gochya_core.h` и ABI smoke tests.
+- [x] Добавить генерируемый `gochya_core.h` и нативный C ABI smoke test для первого surface (cross-language consumers остаются Gate 2/5).
 - [x] Описать offline command protocol: `operation_id`, `device_id`, `base_revision`, preconditions и reconciliation.
 - [x] Зафиксировать source-of-truth и дедупликацию HealthKit/Health Connect/Samsung Health.
 - [x] Зафиксировать schema/version migration для JSONB-сущностей Shared Core.

@@ -1,0 +1,76 @@
+name: Shared Core
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Check Shared Core and C ABI
+        run: bash tools/check-core.sh
+      - name: Check Android/Wear OS compilation
+        run: |
+          rustup target add aarch64-linux-android
+          cargo check -p gochya-core --target aarch64-linux-android
+
+  apple-targets:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check iOS device and simulator targets
+        run: |
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+          cargo check -p gochya-core --target aarch64-apple-ios
+          cargo check -p gochya-core --target aarch64-apple-ios-sim
+          cargo check -p gochya-core --target x86_64-apple-ios
+      - name: Build watchOS device target
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+          cargo +nightly build -p gochya-core --release --target arm64_32-apple-watchos -Z build-std=std,panic_abort
+
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: gochya_test
+          POSTGRES_USER: gochya
+          POSTGRES_PASSWORD: gochya
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gochya -d gochya_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GOCHYA_TEST_DATABASE_URL: postgres://gochya:gochya@127.0.0.1:5432/gochya_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: server/go.sum
+      - name: Check Go server and Rust core bridge
+        run: bash tools/check-server.sh

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "seed": 42,
+  "fighterA": {
+    "element": "Fire",
+    "baseDamage": 260.0,
+    "speed": 70.0
+  },
+  "fighterB": {
+    "element": "Earth",
+    "baseDamage": 240.0,
+    "speed": 60.0
+  },
+  "expected": {
+    "winner": "A",
+    "roundCount": 3,
+    "finalHpA": 950,
+    "finalHpB": 0,
+    "rounds": [
+      { "cardAIdx": 0, "cardBIdx": 0, "damageAToB": 437, "damageBToA": 169 },
+      { "cardAIdx": 0, "cardBIdx": 0, "damageAToB": 453, "damageBToA": 181 },
+      { "cardAIdx": 0, "cardBIdx": 0, "damageAToB": 413, "damageBToA": 0 }
+    ]
+  }
+}
+

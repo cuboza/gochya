@@ -101,6 +101,8 @@ qualityScore(metrics, heart) = 100 * (
 comboScore(comboLen) = clamp(comboLen / 5, 0, 1)   // 0..5+ ударов → 0..1
 ```
 
+Возврат `u8`: итог округляется к ближайшему целому после clamp в `[0, 100]`.
+
 ### 2.5. Rarity from quality
 ```
 rarityFromQuality(q):
@@ -242,6 +244,8 @@ base = 100 * (
 )
 vitality = clamp(base * synergyMultiplier(streak_days), 0, MAX_VITALITY_PER_DAY)
 ```
+
+Возврат `u16`: после финального clamp дробная часть отбрасывается (`floor`).
 > **Порядок операций критичен.** Clamp применяется **после** умножения на стрик, иначе инвариант
 > `CORE_SPEC.md` §5.7 (`compute_vitality ∈ [0, 150]`) нарушается: максимум базы = 137,
 > после ×1.5 = 205.5. При правильном порядке: без стрика потолок 137 (кэп не связывает),
@@ -263,7 +267,7 @@ streakBonus = min(streak_days * 0.2, 3)
 ```
 synergyMultiplier(streak_days) =
     if streak_days < 7: 1.0
-    else: clamp(1.0 + (streak_days - 7) * 0.02, 1.0, 1.5)   // 30+ дней → 1.5
+    else: clamp(1.0 + (streak_days - 7) * 0.02, 1.0, 1.5)   // 32+ дня → 1.5
 ```
 
 ### 4.6. Resonance (совпадение стихии)
@@ -357,7 +361,7 @@ defenseRatio(foc_stat, gear_foc_bonus) =
 - **Эвристика по ожидаемому урону** (greedy), детерминированная — без RNG в выборе:
   ```
   for each available card c in myLoadout.cards:
-      if stamina < c.staminaCost: skip (или пометить как "halfDamage")
+      if stamina < c.staminaCost: пометить как "halfDamage"
       if c is signature AND signatureOnCooldown: skip
       expectedDamage = c.baseDamage
           * elementMultiplier(myElement, enemyElement)
@@ -371,20 +375,32 @@ defenseRatio(foc_stat, gear_foc_bonus) =
   ```
 - **Signature-карта кулдаун:** `SIGNATURE_COOLDOWN_ROUNDS = 5` (зафиксировано для MVP). После применения signature недоступна 5 раундов.
 - **Stamina:** `startingStamina = 100 + END / 5`, `staminaRegen = 5 + END / 50` за раунд.
+- **Порядок хода:** обе стороны выбирают карту до начала действий; затем действуют
+  по убыванию initiative. При равенстве первый определяется seeded RNG. Если первое
+  действие обнуляет HP, второе действие в раунде не выполняется.
+- **Округление:** итоговый damage округляется к ближайшему целому перед вычитанием
+  HP; отрицательные и non-finite значения дают `0`.
+- **Crit:** `critChance`, рассчитанный при создании карты, хранится в
+  `TechniqueCard`. Это обязательно для server-authority: raw `PunchMetrics` не
+  покидают устройство и не могут быть повторно использованы сервером во время боя.
 - **Persist статус-эффектов** между раундами (состояние боя, не в `MatchResult` для observer'а — но сервер хранит для replay):
   ```
   ActiveEffects {
       stun_rounds: u8,    // сколько раундов пропускает
-      bleed_stacks: u8,   // урон за стек каждый раунд
+      bleed_stacks: u8,   // число стеков; урон считается по константе
       slow_rounds: u8,
   }
   // Stun: combatant пропускает ход, stun_rounds -= 1
-  // Bleed: combatant теряет bleed_stacks * BLEED_DAMAGE_PER_STACK HP, stacks не растут
+  // Bleed: combatant теряет bleed_stacks * BLEED_DAMAGE_PER_STACK HP; stacks не убывают
   ```
+- `BLEED_DAMAGE_PER_STACK = 8`; эффект `Bleed.value` добавляет число стеков.
+- `SLOW_INITIATIVE_PENALTY = 20`; `Slow.value` задаёт число раундов.
+- Если за раунд сработали эффекты обеих сторон, observer-поле
+  `RoundLog.effect_triggered` хранит первый non-None эффект в порядке действий;
+  полный server replay хранит оба события отдельно.
 - **Поле stamina** живёт в боевом состоянии (не в `Loadout`/`Match` — это runtime-состояние симуляции).
 
 > Без этого раздела `simulate_combat(match, seed)` нереализуем воспроизводимо, а на нём держится anti-cheat и golden tests.
-```
 
 ### 5.3. Element multiplier (камень-ножницы-бумага)
 

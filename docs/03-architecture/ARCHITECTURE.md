@@ -118,7 +118,7 @@ gochya/
 |---|---|---|
 | **iOS device** | static `.a` → `.xcframework` slice (`aarch64-apple-ios`) | Swift bridge через FFI |
 | **watchOS device** | static `.a` → `.xcframework` slice (**`arm64_32-apple-watchos`**, Series 4+) | ⚠️ tier 3, nightly + `-Z build-std` |
-| **iOS simulator** | `.xcframework` slice (`x86_64-apple-ios-simulator`) | разработка/тесты |
+| **iOS simulator** | `.xcframework` slices (`aarch64-apple-ios-sim`, `x86_64-apple-ios`) | Apple Silicon и Intel runners |
 | **Android / Wear OS** | `.so` (`aarch64-linux-android`) | JNI для нативного Kotlin-клиента |
 | **Server** | статическая `.a` (`x86_64-unknown-linux-gnu`) → **cgo** | серверная валидация |
 | **Tests / CI** | native x86_64 | unit/property/golden tests |

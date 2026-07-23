@@ -4,6 +4,29 @@
 
 Эта документация — **исходный бриф для AI-разработки**. Каждый файл самодостаточен, но часть спецификаций кросс-ссылается. Прочтите `00-MASTER-PROMPT.md` первым — он задаёт контекст и порядок работы.
 
+## Статус реализации
+
+Sprint 0 начат: в [`core/`](./core/) находится первый рабочий срез Rust Shared
+Core с heart gate, расчётом Technique Card, vitality, детерминированным casual
+combat, golden/property-тестами и versioned C ABI. В [`server/`](./server/)
+реализован первый Go-срез Dojo: preflight, подписанный submit, attestation
+boundary, replay/idempotency/rate-limit, транзакционный PostgreSQL Store и
+настоящий cgo-вызов Rust Core. HTTP-boundary поддерживает проверяемые
+Ed25519 JWT access tokens с ротацией ключей через `kid` и Play Integrity
+Standard verdict, привязанный к каноническому Dojo payload.
+Auth-модуль выпускает access tokens и выполняет атомарную refresh rotation с
+token-family reuse detection.
+`server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
+PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
+Аппаратные Wear OS/watchOS gate'ы ещё не выполнялись.
+
+Локальная проверка:
+
+```bash
+bash tools/check-core.sh
+bash tools/check-server.sh
+```
+
 ---
 
 ## 📚 Структура документации

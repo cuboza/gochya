@@ -68,16 +68,20 @@
 - Все вызовы формул идут в ядро — сервер не дублирует формулы.
 
 ```go
-// #cgo LDFLAGS: -lgochya_core
+// #cgo LDFLAGS: /path/to/libgochya_core.a -lpthread -ldl -lm
 // #include <gochya_core.h>
 import "C"
 
-func qualityScore(m PunchMetrics, h HeartRateEvidence) float32 {
-    cm := m.toC()
-    ch := h.toC()
-    return float32(C.gochya_quality_score(&cm, &ch))
+func deriveTechnique(m PunchMetrics, h HeartRateEvidence) TechniqueStats {
+    // versioned inputs include struct_size and schema_version
+    // result is written into a caller-owned out parameter
+    return call(C.gochya_derive_technique_v1, m, h)
 }
 ```
+
+Рабочий consumer находится в `server/internal/corebridge`: build tag
+`gochya_core` включает статическую линковку, а сборка без него fail-closed
+возвращает `ErrUnavailable` и не дублирует формулы.
 
 ---
 
@@ -102,17 +106,23 @@ CREATE TABLE players (
 
 -- Refresh-токены (audit D5/B12: для refresh rotation — без этой таблицы политика инвалидации не работает)
 CREATE TABLE refresh_tokens (
-    id              UUID PRIMARY KEY,
-    player_id       UUID NOT NULL REFERENCES players(id),
-    token_hash      TEXT NOT NULL,           -- SHA-256 от refresh token (не хранить plaintext!)
-    issued_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at      TIMESTAMPTZ NOT NULL,
-    revoked_at      TIMESTAMPTZ,             -- при rotation предыдущий токен помечается
-    replaced_by     UUID REFERENCES refresh_tokens(id),
-    device_id       TEXT                     -- привязка к устройству (опц.)
+    id                  UUID PRIMARY KEY,
+    family_id           UUID NOT NULL,
+    player_id           UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    device_id           TEXT,                -- привязка к устройству (опц.)
+    token_hash          BYTEA NOT NULL UNIQUE -- SHA-256; plaintext не хранится
+                        CHECK (octet_length(token_hash) = 32),
+    issued_at           TIMESTAMPTZ NOT NULL,
+    expires_at          TIMESTAMPTZ NOT NULL,
+    family_expires_at   TIMESTAMPTZ NOT NULL,
+    revoked_at          TIMESTAMPTZ,
+    replaced_by         UUID REFERENCES refresh_tokens(id),
+    reuse_detected_at   TIMESTAMPTZ,
+    CHECK (expires_at > issued_at),
+    CHECK (family_expires_at >= expires_at)
 );
-CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash) WHERE revoked_at IS NULL;
-CREATE INDEX idx_refresh_tokens_player ON refresh_tokens(player_id);
+CREATE INDEX idx_refresh_tokens_family ON refresh_tokens(family_id);
+CREATE INDEX idx_refresh_tokens_player_expiry ON refresh_tokens(player_id, expires_at);
 
 -- Питомцы
 CREATE TABLE pets (
@@ -364,18 +374,33 @@ CREATE TABLE anticheat_events (
 > - **Pagination:** все списки используют cursor-based: `?limit=20&cursor=<base64>` → `{ items, next_cursor }`.
 > - **Error response body** (единая структура):
 >   ```json
->   { "error": { "code": "VALIDATION_FAILED", "message": "hunger already at max", "details": {...}, "request_id": "uuid" } }
+>   { "error": { "code": "evidence_invalid", "message": "recording duration is invalid", "details": {}, "request_id": "uuid" } }
 >   ```
-> - **Error codes (каталог):** `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `CORE_ERROR` (с маппингом `CoreError`), `IAP_INVALID`, `ANTICHEAT_REJECTED`, `INTERNAL`.
+> - **Error codes:** стабильные `lower_snake_case`; HTTP status задаёт категорию,
+>   а `code` — точную машинно-читаемую причину.
 
 ### Auth
 ```
 POST   /v1/auth/apple         { identityToken }           → { jwt, refreshToken, player }
 POST   /v1/auth/samsung       { accessToken }             → { jwt, refreshToken, player }
 POST   /v1/auth/google        { idToken }                 → { jwt, refreshToken, player }
-POST   /v1/auth/refresh       { refreshToken }            → { jwt, refreshToken }   // rotation: старый инвалидируется
+POST   /v1/auth/refresh       { refreshToken }            → { jwt, refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt }
 POST   /v1/auth/logout        { refreshToken }            → 204   // revoke
 ```
+
+Dojo HTTP-boundary уже содержит `JWTAuthenticator`: принимается только EdDSA,
+ключ выбирается по подписанному `kid`, обязательны совпадающие issuer/audience,
+`exp`, `iat`, `jti`, UUID в `sub` и `token_use=access`; lifetime по умолчанию
+ограничен 15 минутами. `internal/auth` выпускает совместимые Ed25519 access
+tokens и 256-bit opaque refresh tokens. Refresh живёт 30 дней, абсолютный
+lifetime token family — 90 дней. Rotation выполняется транзакционно; повтор
+отозванного токена фиксирует `reuse_detected_at` и отзывает всю family.
+`/v1/auth/logout` также отзывает family и не раскрывает существование токена.
+Непроверенный plaintext refresh-токена никогда не сохраняется.
+
+Реализованы `/v1/auth/refresh` и `/v1/auth/logout`. Проверка provider credentials
+и первичные `/apple`, `/samsung`, `/google` exchange остаются за отдельными
+OAuth-адаптерами. `HeaderAuthenticator` не является production-аутентификацией.
 
 ### Profile / Pets
 ```
@@ -392,8 +417,10 @@ POST   /me/pets/:id/sleep                                 → Pet
 ### Training / Dojo
 ```
 POST   /dojo/preflight       { deviceId, appBuild }      → { nonce, challenge, evidenceSchemaVersion, expiresAt }
-POST   /dojo/submit          { nonce, metrics, heartEvidence, featureSummary, classifierVersion, appBuild, attestation, payloadSignature }
-                                                            → TechniqueCard
+POST   /dojo/submit          { deviceId, nonce, evidenceSchemaVersion, recordedAtMs, metrics,
+                               heartEvidence, featureSummary, classifierVersion, appBuild,
+                               attestation, payloadSignature }
+                                                            → { card: TechniqueCard, evidenceVerdict }
 GET    /me/techniques                                    → TechniqueCard[]
 POST   /me/techniques/equip   { cardIds[], signatureIdx } → Loadout
 ```
@@ -411,9 +438,51 @@ POST   /me/techniques/equip   { cardIds[], signatureIdx } → Loadout
 > - `signatureId` → `signatureIdx` (0..4): signature — свойство лоадаута,
 >   а не карты (`CORE_SPEC.md` §3.6).
 >
-> Возможные отказы `submit`: `ANTICHEAT_REJECTED` с причиной
-> (`heart_gate_failed` | `attestation_failed` | `signature_invalid` |
-> `evidence_inconsistent` | `replay_detected` | `nonce_invalid` | `rate_limited`).
+> Возможные коды отказа `submit`: `heart_rejected`, `attestation_invalid`,
+> `attestation_unavailable`,
+> `signature_invalid`, `evidence_invalid`, `replay_detected`, `nonce_invalid`,
+> `rate_limited`, `daily_limit`, `idempotency_conflict`, `core_unavailable`.
+>
+> Реализованный vertical slice находится в `server/internal/dojo`. Он строго
+> отклоняет неизвестные JSON-поля и тела больше 64 KiB, использует Ed25519 и
+> сохраняет idempotency result до проверки использованного nonce, поэтому
+> безопасный сетевой retry возвращает исходную карту. `MemoryStore` служит
+> эталоном для unit-тестов, а `PostgresStore` реализует production-семантику:
+> row lock игрока сериализует дневной/минутный лимит, nonce блокируется
+> `FOR UPDATE`, а карта, audit, replay hash, idempotency result и `used_at`
+> фиксируются одной транзакцией. Bearer nonce в БД не хранится — только SHA-256.
+> Layout находится в `server/migrations/000001_dojo.up.sql`.
+>
+> Wear OS использует Play Integrity Standard API. Клиент передаёт
+> `attestation.provider = "play_integrity_standard"`, а `appBuild` содержит
+> десятичный Play `versionCode`. Content binding:
+>
+> ```text
+> canonical = canonical JSON всех подписываемых полей submit
+> requestHash = base64url_no_padding(SHA-256(
+>   "gochya-dojo-play-integrity-v1" || 0x00 ||
+>   challenge || 0x00 || canonical
+> ))
+> ```
+>
+> Сервер отправляет encrypted token в
+> `playintegrity.googleapis.com/v1/{package}:decodeIntegrityToken` через
+> Application Default Credentials и scope `playintegrity`. Policy требует
+> совпадающие request package/hash/version/certificate, свежий timestamp,
+> `PLAY_RECOGNIZED`, `LICENSED` и минимум `MEETS_DEVICE_INTEGRITY`.
+> Testing verdict запрещён без явного staging-флага. Сетевой/Google/ADC сбой
+> даёт `503 attestation_unavailable` и допускает retry; отрицательный verdict —
+> `401 attestation_invalid`.
+> Чтобы параллельные submit/retry не декодировали один Standard token несколько
+> раз, процесс объединяет одинаковые запросы и на две минуты кэширует
+> проверенный результат. Ключ — SHA-256 от encrypted token и `requestHash`;
+> raw token не сохраняется, временные ошибки в кэш не попадают.
+>
+> HTTP-слой принимает интерфейс аутентификации. `HeaderAuthenticator` с
+> `X-Player-ID` допустим только в тестах/закрытом staging; production обязан
+> передать `JWTAuthenticator`. Production передаёт настроенный
+> `PlayIntegrityVerifier`; `RejectingAttestationVerifier` остаётся безопасным
+> fallback при отсутствии конфигурации.
 
 ### PvP
 ```

@@ -138,10 +138,19 @@ heartGate = (present >= 0.80) AND (mean >= baseline+8) AND (mean >= 55) AND (con
 ### 3.3a. Attestation и подпись Dojo payload
 
 - `/dojo/preflight` возвращает `nonce`, `expiresAt`, `evidenceSchemaVersion` и случайный `challenge` для platform attestation.
-- Wear OS MVP использует Play Integrity; конкретный допустимый набор verdict'ов фиксируется только после Gate 1/3 на целевых часах.
+- Wear OS MVP использует Play Integrity Standard API. Базовая server policy
+  требует `PLAY_RECOGNIZED`, `LICENSED`, `MEETS_DEVICE_INTEGRITY`, совпадающие
+  package/versionCode/signing certificate и свежий timestamp. Gate 1/3 может
+  усилить policy до `MEETS_STRONG_INTEGRITY`, но не ослабить базовый набор.
 - iOS/watchOS в Beta использует App Attest, а при документированном отсутствии поддержки на конкретном target — DeviceCheck с более низким trust tier.
 - При регистрации устройства клиент создаёт аппаратно защищаемый ключ, если платформа это позволяет. Сервер хранит public key и привязку к account/device.
 - `/dojo/submit` подписывает канонический payload: `nonce`, schema version, timestamps, metrics, heart evidence, feature summary, classifier version и app build.
+- Play Integrity `requestHash` привязывает verdict к тому же submit и challenge:
+  `base64url(SHA-256("gochya-dojo-play-integrity-v1" || 0x00 || challenge || 0x00 || canonical_payload))`
+  без `=` padding. `appBuild` равен десятичному Play `versionCode`.
+- Backend объединяет параллельное декодирование одинакового Standard token и
+  хранит проверенный результат две минуты по SHA-256 от token + `requestHash`.
+  Сам encrypted token и временные ошибки в локальный кэш не записываются.
 - Недоступность attestation-сервиса не выдаёт карту: запись хранится локально как `PENDING` до истечения nonce либо пользователь получает безопасный retry.
 - Attestation не превращает client features в доказанный raw signal. Она лишь повышает уверенность, что признаки вычислил разрешённый build в приемлемом окружении.
 
@@ -170,9 +179,10 @@ classifier_id, classifier_version, technique_type, confidence
 H = -Σ p(x) · log2(p(x))     // по гистограмме из 16 бинов, нормированной на [0, max_accel]
 ```
 - Передаёт на сервер **одно число** `client_entropy` (float).
-- Сервер проверяет диапазон: `2.5 <= client_entropy <= 6.0` для валидной записи.
+- Сервер проверяет диапазон: `2.5 <= client_entropy <= 4.0` для валидной записи.
   - `< 2.5` → подозрение на циклический буфер / повторяющуюся тряску.
-  - `> 6.0` → подозрение на синтетический шум (равномерное распределение).
+  - `> 4.0` → невозможное значение для 16 бинов, запись отклоняется как
+    несогласованная (`log2(16) = 4`).
 - Это слабая эвристика, но в сочетании с heart gate отсекает большинство дешёвых читов.
 
 ### 3.5. Вероятностный аудит типа удара (post-factum, не блокирует)
@@ -290,7 +300,11 @@ transactions:
 ## 8. АВТОРИЗАЦИЯ И СЕССИИ
 
 - JWT с коротким TTL (15 мин) + refresh-token (30 дней).
-- Refresh-rotation: каждый refresh инвалиддирует предыдущий.
+- Refresh-rotation: каждый refresh инвалидирует предыдущий; абсолютный lifetime
+  token family — 90 дней.
+- В PostgreSQL хранится только 32-byte SHA-256 refresh-токена. Повтор уже
+  отозванного токена помечается как reuse и атомарно отзывает всю token family.
+- Logout не раскрывает, существовал ли переданный токен, и отзывает всю family.
 - Device binding: опциональная привязка аккаунта к device fingerprint (для чувствительных действий).
 - 2FA — опционально для аккаунтов с IAP-историей.
 

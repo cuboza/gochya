@@ -25,7 +25,7 @@
 |---|---|---|
 | `aarch64-apple-ios` | `.a` → slice в `.xcframework` | iOS (companion) |
 | **`arm64_32-apple-watchos`** | `.a` → slice в `.xcframework` | **Apple Watch, см. предупреждение ниже** |
-| `x86_64-apple-ios-simulator` | slice в `.xcframework` | разработка/тесты |
+| `aarch64-apple-ios-sim`, `x86_64-apple-ios` | slices в `.xcframework` | Apple Silicon и Intel simulator runners |
 | `aarch64-linux-android` | `.so` | JNI для Kotlin-клиента (Wear OS) |
 | `x86_64-unknown-linux-gnu` | `.a` → cgo | сервер |
 | `x86_64-*` | native binary | CI/тесты |
@@ -104,8 +104,8 @@ pub enum EffectKind {
 #[repr(C)]
 pub struct Effect {
     pub kind:  EffectKind,
-    pub value: f32,      // Stun/Slow — раунды; Bleed — урон/раунд;
-                         // Crit — множитель; Heal — HP. Для None игнорируется.
+    pub value: f32,      // Stun/Slow — раунды; Bleed — число стеков;
+                         // Crit — множитель крита; Heal — HP. Для None игнорируется.
 }
 ```
 
@@ -216,6 +216,8 @@ pub struct TechniqueCard {
     pub base_damage:  f32,
     pub speed:        f32,
     pub stamina_cost: u16,
+    pub crit_chance:  f32,   // 0..0.35; сохраняется, т.к. raw PunchMetrics
+                             // не уходят с устройства и недоступны серверу в бою
     pub effect:       Effect,
     pub quality:      u8,      // 0..100
     pub owner_id:     [u8; 16],
@@ -512,9 +514,12 @@ pub struct Bracket {
 
 ---
 
-## 4. PUBLIC API (C-ABI)
+## 4. PUBLIC API (Rust domain API)
 
-Сигнатуры приведены в Rust-формате; в FFI превращаются в `extern "C"`. **Все функции принимают/возвращают C-совместимые типы.**
+Сигнатуры ниже — удобный Rust domain API. Внешний C ABI не экспортирует их
+напрямую: он использует versioned POD-структуры, `GochyaStatus` и out-параметры
+из `CORE_ABI.md`. Это исключает Rust references и возврат крупных структур
+by-value на границе Swift/Kotlin/Dart/Go.
 
 ### 4.1. RNG (детерминированный)
 ```rust
@@ -650,6 +655,11 @@ pub struct ActiveEffects {
     pub slow_rounds:   u8,
 }
 ```
+
+Для MVP `Bleed` наносит `8 HP` за стек в начале каждого следующего раунда и
+сохраняется до конца боя. `Slow` уменьшает initiative на `20` на указанное число
+раундов. Эти числа входят в golden path и меняются только вместе с
+`CORE_FORMULAS.md` и golden fixtures.
 
 ### 4.7. Экономика
 ```rust

@@ -59,7 +59,10 @@
 2. Вибрация «READY», отсчёт 3-2-1, открывается окно записи 5–8 сек.
 3. Игрок выполняет удар или комбо.
 4. С часов уходят **только производные метрики и schema-versioned feature summary** (sample counts, duration, peaks/RMS, entropy, zero crossings, HR aggregates, classifier/build version). Сырой временной ряд не покидает устройство.
-5. Сервер проверяет nonce, platform attestation, подпись payload и внутреннюю согласованность признаков до создания карты (`ANTICHEAT.md §2.1, §3.3a–b`).
+5. Wear OS вычисляет Play Integrity Standard `requestHash` из preflight
+   challenge и канонического submit; сервер проверяет binding, nonce, verdict,
+   Ed25519-подпись и внутреннюю согласованность признаков до создания карты
+   (`ANTICHEAT.md §2.1, §3.3a–b`).
 5. Сервер валидирует сессию (см. `MECHANIC_HEART_GATE.md` и `ANTICHEAT.md`) и выдаёт **Technique Card**.
 6. Карта попадает в **Skill Library** → игрок собирает боевой лоадаут для PvP.
 
@@ -110,6 +113,7 @@ struct TechniqueCard {
     baseDamage:   f32,               // f(power, precision, level)
     speed:        f32,               // f(executionTime) — выше = ходит раньше
     staminaCost:  u16,               // f(power)
+    critChance:   f32,               // 0..0.35; сохраняется для server-authority боя
     effect:       Effect,            // плоская структура, FFI-safe (НЕ Option<Effect> — audit N3)
     quality:      u8,                // 0..100
     owner_id:     [u8; 16],          // привязка к стилю автора (snake_case — audit N2)
