@@ -77,6 +77,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create refresh-token store: %w", err)
 	}
+	identityStore, err := auth.NewPostgresIdentityStore(pool)
+	if err != nil {
+		return fmt.Errorf("create identity store: %w", err)
+	}
 	sessions, err := auth.NewService(auth.ServiceConfig{
 		Store:      refreshStore,
 		KeyID:      config.JWTSigningKeyID,
@@ -87,7 +91,32 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create session service: %w", err)
 	}
-	authAPI, err := auth.NewHTTPHandler(sessions, nil)
+	googleTokenValidator, err := auth.NewGoogleAPIIDTokenValidator(nil)
+	if err != nil {
+		return fmt.Errorf("create Google token validator: %w", err)
+	}
+	googleVerifier, err := auth.NewGoogleVerifier(auth.GoogleVerifierConfig{
+		Validator: googleTokenValidator,
+		Audiences: config.GoogleClientIDs,
+	})
+	if err != nil {
+		return fmt.Errorf("create Google identity verifier: %w", err)
+	}
+	googleExchange, err := auth.NewGoogleExchangeService(
+		auth.GoogleExchangeServiceConfig{
+			Verifier: googleVerifier,
+			Players:  identityStore,
+			Sessions: sessions,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create Google exchange: %w", err)
+	}
+	authAPI, err := auth.NewHTTPHandlerWithGoogle(
+		sessions,
+		googleExchange,
+		nil,
+	)
 	if err != nil {
 		return fmt.Errorf("create auth HTTP API: %w", err)
 	}

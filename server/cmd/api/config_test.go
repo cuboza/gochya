@@ -67,6 +67,13 @@ func TestLoadAPIConfigRejectsInvalidEnvironment(t *testing.T) {
 			match: "GOCHYA_DATABASE_URL is required",
 		},
 		{
+			name: "missing Google client ID",
+			mutate: func(values map[string]string) {
+				delete(values, "GOCHYA_GOOGLE_CLIENT_IDS")
+			},
+			match: "GOCHYA_GOOGLE_CLIENT_IDS is required",
+		},
+		{
 			name: "bad address",
 			mutate: func(values map[string]string) {
 				values["GOCHYA_HTTP_ADDRESS"] = "localhost"
@@ -137,6 +144,7 @@ func validEnvironment() map[string]string {
 		"GOCHYA_JWT_PUBLIC_KEYS_JSON":            `{"primary":"` + base64.RawURLEncoding.EncodeToString(publicKey) + `"}`,
 		"GOCHYA_JWT_SIGNING_KEY_ID":              "primary",
 		"GOCHYA_JWT_SIGNING_PRIVATE_KEY":         base64.RawURLEncoding.EncodeToString(privateKey),
+		"GOCHYA_GOOGLE_CLIENT_IDS":               "android-client.apps.googleusercontent.com",
 		"GOCHYA_PLAY_PACKAGE_NAME":               "com.gochya.watch",
 		"GOCHYA_PLAY_CERTIFICATE_SHA256_DIGESTS": "certificate-a,certificate-b",
 		"GOCHYA_ALLOWED_APP_BUILDS":              "100,101",

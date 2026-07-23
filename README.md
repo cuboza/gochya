@@ -15,7 +15,8 @@ boundary, replay/idempotency/rate-limit, транзакционный PostgreSQL
 Ed25519 JWT access tokens с ротацией ключей через `kid` и Play Integrity
 Standard verdict, привязанный к каноническому Dojo payload.
 Auth-модуль выпускает access tokens и выполняет атомарную refresh rotation с
-token-family reuse detection.
+token-family reuse detection; Google ID token exchange создаёт или находит
+игрока по проверенному provider `sub`.
 `server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 Аппаратные Wear OS/watchOS gate'ы ещё не выполнялись.

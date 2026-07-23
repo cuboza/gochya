@@ -399,7 +399,11 @@ lifetime token family — 90 дней. Rotation выполняется тран�
 Непроверенный plaintext refresh-токена никогда не сохраняется.
 
 Реализованы `/v1/auth/refresh` и `/v1/auth/logout`. Проверка provider credentials
-и первичные `/apple`, `/samsung`, `/google` exchange остаются за отдельными
+для `/v1/auth/google` использует официальный Google ID-token validator и
+дополнительно требует точный allowlist `aud`, Google `iss`, свежие `exp`/`iat`
+и стабильный непустой `sub`. Email не является ключом аккаунта и не сохраняется.
+Upsert по `(auth_method, auth_subject)` атомарен, после него выдаётся собственная
+session pair. Первичные `/apple` и `/samsung` exchange остаются за отдельными
 OAuth-адаптерами. `HeaderAuthenticator` не является production-аутентификацией.
 
 ### Profile / Pets

@@ -27,7 +27,9 @@ func TestPostgresRefreshRotationDetectsConcurrentReuse(t *testing.T) {
 	pool := authPostgresTestPool(t, ctx, databaseURL)
 	if _, err := pool.Exec(
 		ctx,
-		`INSERT INTO players (id) VALUES ($1)`,
+		`INSERT INTO players (
+		     id, username, created_at, auth_method, auth_subject
+		 ) VALUES ($1, 'existing-player', NOW(), 'google', 'existing-subject')`,
 		authPostgresTestPlayer,
 	); err != nil {
 		t.Fatalf("seed player: %v", err)
@@ -166,6 +168,74 @@ func TestPostgresRefreshRotationDetectsConcurrentReuse(t *testing.T) {
 	}
 }
 
+func TestPostgresIdentityStoreConcurrentResolveIsStable(t *testing.T) {
+	databaseURL := os.Getenv("GOCHYA_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("GOCHYA_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	pool := authPostgresTestPool(t, ctx, databaseURL)
+	store, err := NewPostgresIdentityStore(pool)
+	if err != nil {
+		t.Fatalf("NewPostgresIdentityStore: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	candidates := []PlayerCandidate{
+		{
+			ID:          "22222222-2222-4222-8222-222222222222",
+			Username:    "google_stable",
+			DisplayName: "Player",
+			Identity: ExternalIdentity{
+				Provider: "google",
+				Subject:  "google-subject",
+			},
+			Now: now,
+		},
+		{
+			ID:          "33333333-3333-4333-8333-333333333333",
+			Username:    "google_stable",
+			DisplayName: "Player",
+			Identity: ExternalIdentity{
+				Provider: "google",
+				Subject:  "google-subject",
+			},
+			Now: now,
+		},
+	}
+	players := make([]Player, len(candidates))
+	failures := make([]error, len(candidates))
+	var group sync.WaitGroup
+	for index := range candidates {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			players[index], failures[index] = store.Resolve(ctx, candidates[index])
+		}()
+	}
+	group.Wait()
+	for index, err := range failures {
+		if err != nil {
+			t.Fatalf("Resolve %d: %v", index, err)
+		}
+		if players[index].ID != players[0].ID {
+			t.Fatalf("Resolve %d returned player %q, want %q", index, players[index].ID, players[0].ID)
+		}
+	}
+	var count int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT COUNT(*)
+		   FROM players
+		  WHERE auth_method = 'google' AND auth_subject = 'google-subject'`,
+	).Scan(&count); err != nil {
+		t.Fatalf("count resolved players: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("resolved player count = %d", count)
+	}
+}
+
 func authPostgresTestPool(
 	t *testing.T,
 	ctx context.Context,
@@ -225,7 +295,16 @@ func authPostgresTestPool(
 	})
 	if _, err := pool.Exec(
 		ctx,
-		`CREATE TABLE players (id UUID PRIMARY KEY)`,
+		`CREATE TABLE players (
+		     id UUID PRIMARY KEY,
+		     username TEXT UNIQUE NOT NULL,
+		     display_name TEXT,
+		     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		     last_seen TIMESTAMPTZ,
+		     auth_method TEXT NOT NULL,
+		     auth_subject TEXT NOT NULL,
+		     UNIQUE (auth_method, auth_subject)
+		 )`,
 	); err != nil {
 		t.Fatalf("create players table: %v", err)
 	}

@@ -18,6 +18,116 @@ type fakeSessionManager struct {
 	logoutSeen  string
 }
 
+type fakeGoogleExchanger struct {
+	response LoginResponse
+	err      error
+	token    string
+	deviceID string
+}
+
+func (exchange *fakeGoogleExchanger) Exchange(
+	_ context.Context,
+	token string,
+	deviceID string,
+) (LoginResponse, error) {
+	exchange.token = token
+	exchange.deviceID = deviceID
+	return exchange.response, exchange.err
+}
+
+func TestHTTPGoogleReturnsSessionAndPlayer(t *testing.T) {
+	google := &fakeGoogleExchanger{response: LoginResponse{
+		TokenPair: TokenPair{JWT: "access", RefreshToken: "refresh"},
+		Player: Player{
+			ID:       "77777777-7777-4777-8777-777777777777",
+			Username: "google_player",
+		},
+	}}
+	handler, err := NewHTTPHandlerWithGoogle(
+		&fakeSessionManager{},
+		google,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewHTTPHandlerWithGoogle: %v", err)
+	}
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/v1/auth/google",
+			strings.NewReader(
+				`{"idToken":"google-token","deviceId":"phone-1"}`,
+			),
+		),
+	)
+	if response.Code != http.StatusOK ||
+		google.token != "google-token" ||
+		google.deviceID != "phone-1" ||
+		!strings.Contains(response.Body.String(), `"username":"google_player"`) {
+		t.Fatalf("response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestHTTPGoogleMapsIdentityFailures(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{
+			name:   "invalid token",
+			err:    ErrIdentityTokenInvalid,
+			status: http.StatusUnauthorized,
+			code:   "identity_token_invalid",
+		},
+		{
+			name: "provider unavailable",
+			err: &IdentityProviderUnavailableError{
+				Cause: errors.New("timeout"),
+			},
+			status: http.StatusServiceUnavailable,
+			code:   "identity_provider_unavailable",
+		},
+		{
+			name:   "invalid request",
+			err:    ErrLoginRequestInvalid,
+			status: http.StatusBadRequest,
+			code:   "login_request_invalid",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, err := NewHTTPHandlerWithGoogle(
+				&fakeSessionManager{},
+				&fakeGoogleExchanger{err: test.err},
+				nil,
+			)
+			if err != nil {
+				t.Fatalf("NewHTTPHandlerWithGoogle: %v", err)
+			}
+			response := httptest.NewRecorder()
+			handler.Routes().ServeHTTP(
+				response,
+				httptest.NewRequest(
+					http.MethodPost,
+					"/v1/auth/google",
+					strings.NewReader(`{"idToken":"token"}`),
+				),
+			)
+			if response.Code != test.status ||
+				!strings.Contains(
+					response.Body.String(),
+					`"code":"`+test.code+`"`,
+				) {
+				t.Fatalf("response = %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func (manager *fakeSessionManager) Refresh(
 	_ context.Context,
 	token string,

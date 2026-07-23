@@ -22,6 +22,7 @@ type apiConfig struct {
 	JWTPublicKeys           map[string]ed25519.PublicKey
 	JWTSigningKeyID         string
 	JWTSigningPrivateKey    ed25519.PrivateKey
+	GoogleClientIDs         map[string]struct{}
 	PlayPackageName         string
 	PlayCertificateDigests  map[string]struct{}
 	PlayRequiredVerdicts    []string
@@ -84,6 +85,10 @@ func loadAPIConfig(lookup environmentLookup) (apiConfig, error) {
 			"JWT signing private key does not match its configured public key",
 		)
 	}
+	googleClientIDs, err := requiredCSVSet(lookup, "GOCHYA_GOOGLE_CLIENT_IDS")
+	if err != nil {
+		return apiConfig{}, err
+	}
 	playPackageName, err := requiredEnvironment(lookup, "GOCHYA_PLAY_PACKAGE_NAME")
 	if err != nil {
 		return apiConfig{}, err
@@ -138,6 +143,7 @@ func loadAPIConfig(lookup environmentLookup) (apiConfig, error) {
 		JWTPublicKeys:           jwtKeys,
 		JWTSigningKeyID:         jwtSigningKeyID,
 		JWTSigningPrivateKey:    jwtSigningPrivateKey,
+		GoogleClientIDs:         googleClientIDs,
 		PlayPackageName:         playPackageName,
 		PlayCertificateDigests:  playCertificates,
 		PlayRequiredVerdicts:    requiredVerdicts,

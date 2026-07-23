@@ -27,8 +27,15 @@ pgxpool. Она блокирует строку игрока и nonce, посл�
 request binding, freshness, package/version/certificate, `PLAY_RECOGNIZED`,
 `LICENSED` и `MEETS_DEVICE_INTEGRITY`. HTTP decoder вызывает Google
 `:decodeIntegrityToken`, а access token получает через Application Default
-Credentials с OAuth scope `playintegrity`. Проверка credentials внешних
-OAuth-провайдеров остаётся отдельным следующим модулем.
+Credentials с OAuth scope `playintegrity`.
+
+`GoogleVerifier` проверяет Google ID token официальным Go validator: подпись и
+ротацию JWK с cache headers, точный allowlist `aud`, `exp`, оба допустимых
+варианта `iss`, `iat` и непустой стабильный `sub`. Email не используется как
+ключ и не сохраняется. `PostgresIdentityStore` атомарно создаёт игрока либо
+возвращает существующего по `(auth_method, auth_subject)`, после чего auth
+service выдаёт собственную session pair. Apple и Samsung adapters остаются
+следующими provider-модулями.
 
 Пока verifier явно не передан в `ServiceConfig`, приложение должно использовать
 `RejectingAttestationVerifier`: он намеренно закрывает выдачу карт.
@@ -74,6 +81,7 @@ Google ADC, Play Integrity Standard и нативный Rust Core. При ста
 | `GOCHYA_JWT_PUBLIC_KEYS_JSON` | JSON `kid →` 32-byte unpadded base64url Ed25519 public key |
 | `GOCHYA_JWT_SIGNING_KEY_ID` | активный `kid`, присутствующий в public key map |
 | `GOCHYA_JWT_SIGNING_PRIVATE_KEY` | 64-byte unpadded base64url Ed25519 private key из secret manager |
+| `GOCHYA_GOOGLE_CLIENT_IDS` | CSV разрешённых Google OAuth client IDs (`aud`) |
 | `GOCHYA_PLAY_PACKAGE_NAME` | Android package name |
 | `GOCHYA_PLAY_CERTIFICATE_SHA256_DIGESTS` | CSV разрешённых Play certificate digests |
 | `GOCHYA_ALLOWED_APP_BUILDS` | CSV разрешённых `versionCode` |
@@ -98,6 +106,7 @@ CGO_ENABLED=1 go build -tags gochya_core -o ../target/gochya-api ./cmd/api
 ```text
 POST /v1/dojo/preflight
 POST /v1/dojo/submit
+POST /v1/auth/google
 POST /v1/auth/refresh
 POST /v1/auth/logout
 GET  /health/live

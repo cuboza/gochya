@@ -13,6 +13,7 @@ const maxAuthRequestBody = 4 << 10
 
 type HTTPHandler struct {
 	sessions SessionManager
+	google   GoogleExchanger
 	random   io.Reader
 }
 
@@ -20,8 +21,32 @@ type refreshRequest struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
+type googleLoginRequest struct {
+	IDToken  string `json:"idToken"`
+	DeviceID string `json:"deviceId,omitempty"`
+}
+
 func NewHTTPHandler(
 	sessions SessionManager,
+	random io.Reader,
+) (*HTTPHandler, error) {
+	return newHTTPHandler(sessions, nil, random)
+}
+
+func NewHTTPHandlerWithGoogle(
+	sessions SessionManager,
+	google GoogleExchanger,
+	random io.Reader,
+) (*HTTPHandler, error) {
+	if google == nil {
+		return nil, errors.New("Google exchanger is required")
+	}
+	return newHTTPHandler(sessions, google, random)
+}
+
+func newHTTPHandler(
+	sessions SessionManager,
+	google GoogleExchanger,
 	random io.Reader,
 ) (*HTTPHandler, error) {
 	if sessions == nil {
@@ -30,14 +55,90 @@ func NewHTTPHandler(
 	if random == nil {
 		random = rand.Reader
 	}
-	return &HTTPHandler{sessions: sessions, random: random}, nil
+	return &HTTPHandler{sessions: sessions, google: google, random: random}, nil
 }
 
 func (h *HTTPHandler) Routes() http.Handler {
 	mux := http.NewServeMux()
+	if h.google != nil {
+		mux.HandleFunc("/v1/auth/google", h.handleGoogle)
+	}
 	mux.HandleFunc("/v1/auth/refresh", h.handleRefresh)
 	mux.HandleFunc("/v1/auth/logout", h.handleLogout)
 	return mux
+}
+
+func (h *HTTPHandler) handleGoogle(
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
+	requestID := h.prepareResponse(writer)
+	if request.Method != http.MethodPost {
+		writer.Header().Set("Allow", http.MethodPost)
+		h.writeError(
+			writer,
+			requestID,
+			"method_not_allowed",
+			"method is not allowed",
+			http.StatusMethodNotAllowed,
+		)
+		return
+	}
+	var input googleLoginRequest
+	if err := decodeRequest(writer, request, &input); err != nil {
+		h.writeError(
+			writer,
+			requestID,
+			"invalid_json",
+			"request body is not valid for this endpoint",
+			http.StatusBadRequest,
+		)
+		return
+	}
+	response, err := h.google.Exchange(
+		request.Context(),
+		input.IDToken,
+		input.DeviceID,
+	)
+	if err != nil {
+		var unavailable *IdentityProviderUnavailableError
+		switch {
+		case errors.Is(err, ErrLoginRequestInvalid):
+			h.writeError(
+				writer,
+				requestID,
+				"login_request_invalid",
+				"login request is invalid",
+				http.StatusBadRequest,
+			)
+		case errors.Is(err, ErrIdentityTokenInvalid):
+			h.writeError(
+				writer,
+				requestID,
+				"identity_token_invalid",
+				"Google identity token is invalid",
+				http.StatusUnauthorized,
+			)
+		case errors.As(err, &unavailable):
+			h.writeError(
+				writer,
+				requestID,
+				"identity_provider_unavailable",
+				"Google identity verification is temporarily unavailable",
+				http.StatusServiceUnavailable,
+			)
+		default:
+			h.writeError(
+				writer,
+				requestID,
+				"internal_error",
+				"internal server error",
+				http.StatusInternalServerError,
+			)
+		}
+		return
+	}
+	h.writeJSON(writer, http.StatusOK, response)
 }
 
 func (h *HTTPHandler) handleRefresh(
