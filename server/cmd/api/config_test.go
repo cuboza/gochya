@@ -74,6 +74,34 @@ func TestLoadAPIConfigRejectsInvalidEnvironment(t *testing.T) {
 			match: "GOCHYA_GOOGLE_CLIENT_IDS is required",
 		},
 		{
+			name: "missing Apple client ID",
+			mutate: func(values map[string]string) {
+				delete(values, "GOCHYA_APPLE_CLIENT_IDS")
+			},
+			match: "GOCHYA_APPLE_CLIENT_IDS is required",
+		},
+		{
+			name: "missing Samsung client ID",
+			mutate: func(values map[string]string) {
+				delete(values, "GOCHYA_SAMSUNG_OIDC_CLIENT_ID")
+			},
+			match: "GOCHYA_SAMSUNG_OIDC_CLIENT_ID is required",
+		},
+		{
+			name: "missing Samsung client secret",
+			mutate: func(values map[string]string) {
+				delete(values, "GOCHYA_SAMSUNG_OIDC_CLIENT_SECRET")
+			},
+			match: "GOCHYA_SAMSUNG_OIDC_CLIENT_SECRET is required",
+		},
+		{
+			name: "missing Samsung redirect URI",
+			mutate: func(values map[string]string) {
+				delete(values, "GOCHYA_SAMSUNG_REDIRECT_URIS")
+			},
+			match: "GOCHYA_SAMSUNG_REDIRECT_URIS is required",
+		},
+		{
 			name: "bad address",
 			mutate: func(values map[string]string) {
 				values["GOCHYA_HTTP_ADDRESS"] = "localhost"
@@ -145,6 +173,10 @@ func validEnvironment() map[string]string {
 		"GOCHYA_JWT_SIGNING_KEY_ID":              "primary",
 		"GOCHYA_JWT_SIGNING_PRIVATE_KEY":         base64.RawURLEncoding.EncodeToString(privateKey),
 		"GOCHYA_GOOGLE_CLIENT_IDS":               "android-client.apps.googleusercontent.com",
+		"GOCHYA_APPLE_CLIENT_IDS":                "com.gochya.companion,com.gochya.watch",
+		"GOCHYA_SAMSUNG_OIDC_CLIENT_ID":          "gochya-samsung-client",
+		"GOCHYA_SAMSUNG_OIDC_CLIENT_SECRET":      "samsung-client-secret",
+		"GOCHYA_SAMSUNG_REDIRECT_URIS":           "https://auth.gochya.example/samsung/callback",
 		"GOCHYA_PLAY_PACKAGE_NAME":               "com.gochya.watch",
 		"GOCHYA_PLAY_CERTIFICATE_SHA256_DIGESTS": "certificate-a,certificate-b",
 		"GOCHYA_ALLOWED_APP_BUILDS":              "100,101",

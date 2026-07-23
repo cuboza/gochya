@@ -10,6 +10,7 @@ var (
 	ErrRefreshTokenInvalid  = errors.New("refresh token is invalid or expired")
 	ErrRefreshTokenReused   = errors.New("refresh token reuse detected")
 	ErrIdentityTokenInvalid = errors.New("identity token is invalid")
+	ErrLoginNonceInvalid    = errors.New("login nonce is invalid or expired")
 	ErrLoginRequestInvalid  = errors.New("login request is invalid")
 )
 
@@ -101,6 +102,62 @@ type GoogleIdentityVerifier interface {
 
 type GoogleExchanger interface {
 	Exchange(context.Context, string, string) (LoginResponse, error)
+}
+
+type AppleIdentityVerifier interface {
+	Verify(context.Context, string, string) (ExternalIdentity, error)
+}
+
+type ApplePreflightResponse struct {
+	Nonce     string    `json:"nonce"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+type AppleExchanger interface {
+	Preflight(context.Context) (ApplePreflightResponse, error)
+	Exchange(context.Context, string, string, string) (LoginResponse, error)
+}
+
+type SamsungIdentityVerifier interface {
+	Verify(context.Context, string, string) (ExternalIdentity, error)
+}
+
+type SamsungCodeTokenExchanger interface {
+	Exchange(context.Context, string, string, string) (string, error)
+}
+
+type SamsungPreflightResponse struct {
+	AuthorizationURL string    `json:"authorizationUrl"`
+	State            string    `json:"state"`
+	Nonce            string    `json:"nonce"`
+	CodeVerifier     string    `json:"codeVerifier"`
+	ExpiresAt        time.Time `json:"expiresAt"`
+}
+
+type SamsungExchanger interface {
+	Preflight(context.Context, string) (SamsungPreflightResponse, error)
+	Exchange(
+		context.Context,
+		string,
+		string,
+		string,
+		string,
+		string,
+		string,
+	) (LoginResponse, error)
+}
+
+type LoginNonceRecord struct {
+	Provider  string
+	Nonce     string
+	Binding   string
+	IssuedAt  time.Time
+	ExpiresAt time.Time
+}
+
+type LoginNonceStore interface {
+	Create(context.Context, LoginNonceRecord) error
+	Consume(context.Context, string, string, string, time.Time) error
 }
 
 type IdentityProviderUnavailableError struct {

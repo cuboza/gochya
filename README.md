@@ -16,7 +16,12 @@ Ed25519 JWT access tokens с ротацией ключей через `kid` и P
 Standard verdict, привязанный к каноническому Dojo payload.
 Auth-модуль выпускает access tokens и выполняет атомарную refresh rotation с
 token-family reuse detection; Google ID token exchange создаёт или находит
-игрока по проверенному provider `sub`.
+игрока по проверенному provider `sub`. Native Sign in with Apple использует
+одноразовый server nonce, проверяет RS256 ID token по ротируемым Apple JWK и
+также связывает аккаунт только со стабильным `sub`, а не с email.
+Samsung Account подключён через OIDC authorization-code flow: backend выдаёт
+state/nonce/PKCE challenge, сам обменивает одноразовый code с confidential
+client credentials и проверяет Samsung RS256 ID token.
 `server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 Аппаратные Wear OS/watchOS gate'ы ещё не выполнялись.

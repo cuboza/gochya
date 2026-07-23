@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const maxAuthDeviceIDLength = 128
+
 type GoogleExchangeServiceConfig struct {
 	Verifier GoogleIdentityVerifier
 	Players  IdentityStore
@@ -56,7 +58,7 @@ func (s *GoogleExchangeService) Exchange(
 	idToken string,
 	deviceID string,
 ) (LoginResponse, error) {
-	if len(deviceID) > 128 {
+	if len(deviceID) > maxAuthDeviceIDLength {
 		return LoginResponse{}, ErrLoginRequestInvalid
 	}
 	identity, err := s.verifier.Verify(ctx, idToken)

@@ -381,8 +381,14 @@ CREATE TABLE anticheat_events (
 
 ### Auth
 ```
-POST   /v1/auth/apple         { identityToken }           → { jwt, refreshToken, player }
-POST   /v1/auth/samsung       { accessToken }             → { jwt, refreshToken, player }
+POST   /v1/auth/apple/preflight  <empty body>             → { nonce, expiresAt }
+POST   /v1/auth/apple         { identityToken, nonce,
+                                deviceId? }                → { jwt, refreshToken, player }
+POST   /v1/auth/samsung/preflight { redirectUri }          → { authorizationUrl, state,
+                                                               nonce, codeVerifier, expiresAt }
+POST   /v1/auth/samsung       { code, state, nonce,
+                                codeVerifier, redirectUri,
+                                deviceId? }                → { jwt, refreshToken, player }
 POST   /v1/auth/google        { idToken }                 → { jwt, refreshToken, player }
 POST   /v1/auth/refresh       { refreshToken }            → { jwt, refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt }
 POST   /v1/auth/logout        { refreshToken }            → 204   // revoke
@@ -403,8 +409,42 @@ lifetime token family — 90 дней. Rotation выполняется тран�
 дополнительно требует точный allowlist `aud`, Google `iss`, свежие `exp`/`iat`
 и стабильный непустой `sub`. Email не является ключом аккаунта и не сохраняется.
 Upsert по `(auth_method, auth_subject)` атомарен, после него выдаётся собственная
-session pair. Первичные `/apple` и `/samsung` exchange остаются за отдельными
-OAuth-адаптерами. `HeaderAuthenticator` не является production-аутентификацией.
+session pair.
+
+Native Apple flow реализован отдельным challenge-response. Клиент сначала
+вызывает `/v1/auth/apple/preflight`, устанавливает выданный 256-bit nonce
+непосредственно в `ASAuthorizationAppleIDRequest.nonce`, затем отправляет Apple
+identity token и тот же nonce в `/v1/auth/apple`. Challenge действует 5 минут и
+атомарно потребляется один раз; в `auth_login_nonces` сохраняется только SHA-256.
+Verifier принимает только RS256, выбирает ключ по `kid` из ротируемого Apple
+JWK set, проверяет точные `iss=https://appleid.apple.com`, allowlist `aud`,
+`exp`, `iat`, nonce и стабильный непустой `sub`. Неизвестный `kid` инициирует
+контролируемое обновление короткого JWK-кэша. Email не является идентификатором
+аккаунта и не сохраняется.
+
+Этот endpoint предназначен для нативного `AuthenticationServices` flow. Для
+будущего web Sign in with Apple потребуется дополнительно передавать и
+проверять одноразовый authorization code через Apple token endpoint.
+`HeaderAuthenticator` не является production-аутентификацией.
+
+Samsung adapter следует OIDC discovery
+`https://account.samsung.com/iam/.well-known/openid-configuration`.
+`/v1/auth/samsung/preflight` принимает только точный зарегистрированный HTTPS
+`redirectUri`, выдаёт authorization URL с `response_type=code`, `scope=openid`,
+state, nonce и PKCE S256. State действует 5 минут и связан с nonce,
+codeVerifier и redirect URI; PostgreSQL хранит только SHA-256 обоих bearer
+значений. `/v1/auth/samsung` атомарно потребляет это состояние до внешнего
+вызова, поэтому сбой после consume требует нового authorization flow.
+
+Backend обменивает code на Samsung token endpoint через `client_secret_basic`;
+secret никогда не передаётся клиенту. Возвращённый ID token принимается только
+с RS256 и ключом из Samsung JWK set. Проверяются точные
+`iss=https://account.samsung.com/iam`, client `aud`, `azp` при нескольких
+audiences, `exp`, `iat`, nonce и стабильный `sub`. Provider access/refresh
+tokens и email не сохраняются. Прежний контракт `{accessToken}` удалён: без
+проверяемой привязки access token к GOCHYA client ID он допускал confused-deputy
+login. Реальные partner credentials и PKCE проходят отдельный device gate перед
+rollout; fallback, ослабляющий binding, запрещён.
 
 ### Profile / Pets
 ```

@@ -19,6 +19,7 @@ var requiredDatabaseTables = []string{
 	"idempotency_results",
 	"dojo_submission_audit",
 	"refresh_tokens",
+	"auth_login_nonces",
 }
 
 func validateDatabaseSchema(ctx context.Context, pool *pgxpool.Pool) error {

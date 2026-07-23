@@ -23,6 +23,10 @@ type apiConfig struct {
 	JWTSigningKeyID         string
 	JWTSigningPrivateKey    ed25519.PrivateKey
 	GoogleClientIDs         map[string]struct{}
+	AppleClientIDs          map[string]struct{}
+	SamsungOIDCClientID     string
+	SamsungOIDCClientSecret string
+	SamsungRedirectURIs     map[string]struct{}
 	PlayPackageName         string
 	PlayCertificateDigests  map[string]struct{}
 	PlayRequiredVerdicts    []string
@@ -89,6 +93,31 @@ func loadAPIConfig(lookup environmentLookup) (apiConfig, error) {
 	if err != nil {
 		return apiConfig{}, err
 	}
+	appleClientIDs, err := requiredCSVSet(lookup, "GOCHYA_APPLE_CLIENT_IDS")
+	if err != nil {
+		return apiConfig{}, err
+	}
+	samsungClientID, err := requiredEnvironment(
+		lookup,
+		"GOCHYA_SAMSUNG_OIDC_CLIENT_ID",
+	)
+	if err != nil {
+		return apiConfig{}, err
+	}
+	samsungClientSecret, err := requiredEnvironment(
+		lookup,
+		"GOCHYA_SAMSUNG_OIDC_CLIENT_SECRET",
+	)
+	if err != nil {
+		return apiConfig{}, err
+	}
+	samsungRedirectURIs, err := requiredCSVSet(
+		lookup,
+		"GOCHYA_SAMSUNG_REDIRECT_URIS",
+	)
+	if err != nil {
+		return apiConfig{}, err
+	}
 	playPackageName, err := requiredEnvironment(lookup, "GOCHYA_PLAY_PACKAGE_NAME")
 	if err != nil {
 		return apiConfig{}, err
@@ -144,6 +173,10 @@ func loadAPIConfig(lookup environmentLookup) (apiConfig, error) {
 		JWTSigningKeyID:         jwtSigningKeyID,
 		JWTSigningPrivateKey:    jwtSigningPrivateKey,
 		GoogleClientIDs:         googleClientIDs,
+		AppleClientIDs:          appleClientIDs,
+		SamsungOIDCClientID:     samsungClientID,
+		SamsungOIDCClientSecret: samsungClientSecret,
+		SamsungRedirectURIs:     samsungRedirectURIs,
 		PlayPackageName:         playPackageName,
 		PlayCertificateDigests:  playCertificates,
 		PlayRequiredVerdicts:    requiredVerdicts,

@@ -81,6 +81,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create identity store: %w", err)
 	}
+	loginNonceStore, err := auth.NewPostgresLoginNonceStore(pool)
+	if err != nil {
+		return fmt.Errorf("create login-nonce store: %w", err)
+	}
 	sessions, err := auth.NewService(auth.ServiceConfig{
 		Store:      refreshStore,
 		KeyID:      config.JWTSigningKeyID,
@@ -112,11 +116,70 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create Google exchange: %w", err)
 	}
-	authAPI, err := auth.NewHTTPHandlerWithGoogle(
-		sessions,
-		googleExchange,
-		nil,
+	appleKeys, err := auth.NewAppleHTTPKeySet(auth.AppleHTTPKeySetConfig{})
+	if err != nil {
+		return fmt.Errorf("create Apple signing-key cache: %w", err)
+	}
+	appleVerifier, err := auth.NewAppleVerifier(auth.AppleVerifierConfig{
+		Keys:      appleKeys,
+		Audiences: config.AppleClientIDs,
+	})
+	if err != nil {
+		return fmt.Errorf("create Apple identity verifier: %w", err)
+	}
+	appleExchange, err := auth.NewAppleExchangeService(
+		auth.AppleExchangeServiceConfig{
+			Verifier: appleVerifier,
+			Nonces:   loginNonceStore,
+			Players:  identityStore,
+			Sessions: sessions,
+		},
 	)
+	if err != nil {
+		return fmt.Errorf("create Apple exchange: %w", err)
+	}
+	samsungKeys, err := auth.NewSamsungHTTPKeySet(auth.HTTPRSAKeySetConfig{})
+	if err != nil {
+		return fmt.Errorf("create Samsung signing-key cache: %w", err)
+	}
+	samsungTokenClient, err := auth.NewSamsungOIDCTokenClient(
+		auth.SamsungOIDCTokenClientConfig{
+			ClientID:     config.SamsungOIDCClientID,
+			ClientSecret: config.SamsungOIDCClientSecret,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create Samsung OIDC token client: %w", err)
+	}
+	samsungVerifier, err := auth.NewSamsungVerifier(
+		auth.SamsungVerifierConfig{
+			Keys:     samsungKeys,
+			ClientID: config.SamsungOIDCClientID,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create Samsung identity verifier: %w", err)
+	}
+	samsungExchange, err := auth.NewSamsungExchangeService(
+		auth.SamsungExchangeServiceConfig{
+			ClientID:     config.SamsungOIDCClientID,
+			RedirectURIs: config.SamsungRedirectURIs,
+			Tokens:       samsungTokenClient,
+			Verifier:     samsungVerifier,
+			Nonces:       loginNonceStore,
+			Players:      identityStore,
+			Sessions:     sessions,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create Samsung exchange: %w", err)
+	}
+	authAPI, err := auth.NewHTTPHandlerWithProviders(auth.HTTPHandlerConfig{
+		Sessions: sessions,
+		Google:   googleExchange,
+		Apple:    appleExchange,
+		Samsung:  samsungExchange,
+	})
 	if err != nil {
 		return fmt.Errorf("create auth HTTP API: %w", err)
 	}

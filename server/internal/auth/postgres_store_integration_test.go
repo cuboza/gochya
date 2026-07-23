@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -236,6 +237,131 @@ func TestPostgresIdentityStoreConcurrentResolveIsStable(t *testing.T) {
 	}
 }
 
+func TestPostgresLoginNonceStoreRejectsConcurrentReplay(t *testing.T) {
+	databaseURL := os.Getenv("GOCHYA_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("GOCHYA_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	pool := authPostgresTestPool(t, ctx, databaseURL)
+	store, err := NewPostgresLoginNonceStore(pool)
+	if err != nil {
+		t.Fatalf("NewPostgresLoginNonceStore: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	nonce := testAppleNonce(15)
+	binding := samsungLoginBinding(
+		testSamsungOpaqueValue(16),
+		"https://auth.gochya.example/samsung/callback",
+		testSamsungOpaqueValue(17),
+	)
+	record := LoginNonceRecord{
+		Provider:  samsungLoginProvider,
+		Nonce:     nonce,
+		Binding:   binding,
+		IssuedAt:  now,
+		ExpiresAt: now.Add(5 * time.Minute),
+	}
+	if err := store.Create(ctx, record); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var storedHash, storedBindingHash []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT nonce_hash, binding_hash FROM auth_login_nonces`,
+	).Scan(&storedHash, &storedBindingHash); err != nil {
+		t.Fatalf("query login nonce: %v", err)
+	}
+	expectedHash := loginNonceDigest(nonce)
+	expectedBindingHash := sha256.Sum256([]byte(binding))
+	if string(storedHash) != string(expectedHash[:]) ||
+		string(storedBindingHash) != string(expectedBindingHash[:]) ||
+		string(storedHash) == nonce ||
+		string(storedBindingHash) == binding {
+		t.Fatal("login state or binding was not stored exclusively as its digest")
+	}
+	if err := store.Consume(
+		ctx,
+		samsungLoginProvider,
+		nonce,
+		samsungLoginBinding(
+			testSamsungOpaqueValue(99),
+			"https://auth.gochya.example/samsung/callback",
+			testSamsungOpaqueValue(17),
+		),
+		now.Add(time.Second),
+	); !errors.Is(err, ErrLoginNonceInvalid) {
+		t.Fatalf("mismatched binding error = %v", err)
+	}
+
+	failures := make([]error, 2)
+	var group sync.WaitGroup
+	for index := range failures {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			failures[index] = store.Consume(
+				ctx,
+				samsungLoginProvider,
+				nonce,
+				binding,
+				now.Add(time.Second),
+			)
+		}()
+	}
+	group.Wait()
+	successes := 0
+	replays := 0
+	for index, failure := range failures {
+		switch {
+		case failure == nil:
+			successes++
+		case errors.Is(failure, ErrLoginNonceInvalid):
+			replays++
+		default:
+			t.Fatalf("Consume %d: %v", index, failure)
+		}
+	}
+	if successes != 1 || replays != 1 {
+		t.Fatalf(
+			"consume outcomes: successes=%d replays=%d",
+			successes,
+			replays,
+		)
+	}
+	var usedAt *time.Time
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT used_at FROM auth_login_nonces`,
+	).Scan(&usedAt); err != nil {
+		t.Fatalf("query consumed nonce: %v", err)
+	}
+	if usedAt == nil {
+		t.Fatal("successful consume did not mark nonce used")
+	}
+
+	downMigration, err := os.ReadFile(
+		"../../migrations/000003_auth_login_nonces.down.sql",
+	)
+	if err != nil {
+		t.Fatalf("read login-nonce down migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, string(downMigration)); err != nil {
+		t.Fatalf("apply login-nonce down migration: %v", err)
+	}
+	var nonceTable *string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT to_regclass('auth_login_nonces')::text`,
+	).Scan(&nonceTable); err != nil {
+		t.Fatalf("check login-nonce down migration: %v", err)
+	}
+	if nonceTable != nil {
+		t.Fatalf("down migration left table %q", *nonceTable)
+	}
+}
+
 func authPostgresTestPool(
 	t *testing.T,
 	ctx context.Context,
@@ -314,6 +440,15 @@ func authPostgresTestPool(
 	}
 	if _, err := pool.Exec(ctx, string(migration)); err != nil {
 		t.Fatalf("apply auth migration: %v", err)
+	}
+	loginNonceMigration, err := os.ReadFile(
+		"../../migrations/000003_auth_login_nonces.up.sql",
+	)
+	if err != nil {
+		t.Fatalf("read login-nonce migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, string(loginNonceMigration)); err != nil {
+		t.Fatalf("apply login-nonce migration: %v", err)
 	}
 	return pool
 }

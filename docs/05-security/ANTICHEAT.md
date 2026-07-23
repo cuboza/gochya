@@ -308,6 +308,24 @@ transactions:
 - Google login принимает только подписанный ID token с разрешённым OAuth client
   ID, Google issuer, актуальным сроком и стабильным `sub`. Переданный клиентом
   Google user ID или email не принимается как доказательство личности.
+- Native Apple login привязан к серверному 256-bit nonce с TTL 5 минут: token
+  должен содержать тот же nonce, после успешной проверки challenge атомарно
+  потребляется. В БД сохраняется только SHA-256, поэтому утечка таблицы не даёт
+  bearer challenge для replay.
+- Apple ID token проверяется только с RS256 и ключом из Apple JWK set,
+  выбранным по `kid`; обязательны точные `iss`, allowlist `aud`, свежие
+  `exp`/`iat` и стабильный `sub`. Неизвестный `kid` вызывает ограниченное по
+  частоте обновление кэша ключей.
+- Samsung login использует только authorization code, связанный с allowlisted
+  redirect URI, одноразовыми state/nonce и PKCE S256. Backend выполняет token
+  exchange с client secret и проверяет RS256 ID token по Samsung JWK,
+  issuer/audience/`azp`/срокам/nonce/`sub`. Произвольный client access token
+  доказательством личности не считается.
+- State и его PKCE/redirect/nonce binding потребляются атомарно; в БД остаются
+  только SHA-256. После consume любой внешний сбой начинает новый login flow,
+  чтобы исключить двукратный code exchange.
+- Google, Apple и Samsung аккаунты адресуются только `(provider, sub)`. Email не
+  используется для входа, линковки или уникальности и не сохраняется.
 - Device binding: опциональная привязка аккаунта к device fingerprint (для чувствительных действий).
 - 2FA — опционально для аккаунтов с IAP-историей.
 
