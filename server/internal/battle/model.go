@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gochya/gochya/server/internal/corebridge"
+	"github.com/gochya/gochya/server/internal/dojo"
 )
 
 type QueueRequest struct {
@@ -57,10 +58,11 @@ type Reward struct {
 }
 
 type ConfirmResponse struct {
-	MatchID     string    `json:"matchId"`
-	Outcome     string    `json:"outcome"`
-	Rewards     []Reward  `json:"rewards"`
-	ConfirmedAt time.Time `json:"confirmedAt"`
+	MatchID     string              `json:"matchId"`
+	Outcome     string              `json:"outcome"`
+	Rewards     []Reward            `json:"rewards"`
+	Card        *dojo.TechniqueCard `json:"card,omitempty"`
+	ConfirmedAt time.Time           `json:"confirmedAt"`
 }
 
 type QueueCommit struct {
@@ -75,7 +77,14 @@ type QueueCommit struct {
 type ConfirmCommit struct {
 	PlayerID string
 	MatchID  string
+	CardID   string
+	CardSeed uint64
 	Now      time.Time
 }
 
 type Simulator = corebridge.CombatEngine
+
+type Engine interface {
+	corebridge.CombatEngine
+	corebridge.LootEngine
+}

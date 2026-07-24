@@ -3,13 +3,15 @@ package battle
 import (
 	"context"
 	"errors"
+
+	"github.com/gochya/gochya/server/internal/corebridge"
 )
 
 type Store interface {
 	QueueCasual(context.Context, QueueCommit, Simulator) (QueueResponse, error)
 	Match(context.Context, string, string) (MatchResponse, error)
 	History(context.Context, string, int) ([]MatchSummary, error)
-	Confirm(context.Context, ConfirmCommit) (ConfirmResponse, error)
+	Confirm(context.Context, ConfirmCommit, corebridge.LootEngine) (ConfirmResponse, error)
 }
 
 var (

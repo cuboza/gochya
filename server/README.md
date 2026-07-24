@@ -21,7 +21,8 @@
 - `POST /v1/matchmaking/queue` создаёт idempotent casual match по двум
   серверным loadout, `GET /v1/match/:id` отдаёт сохранённый replay участнику,
   `GET /v1/me/matches/history` — его последние результаты, а
-  `POST /v1/match/:id/confirm` один раз начисляет авторитетную награду;
+  `POST /v1/match/:id/confirm` один раз начисляет авторитетную награду и за
+  первую UTC-победу выдаёт server-loot карту до Epic;
 - `POST /v1/sync/activity` принимает нормализованный дневной health snapshot,
   вычисляет adaptive goals, vitality и stat gains через Rust Core и применяет
   только ещё не начисленную дельту; `GET /v1/me/activity/week` возвращает
@@ -80,7 +81,8 @@ Core второй раз. Читать результат могут тольк�
 Награждаются первые 10 матчей игрока за UTC-день; повторные и конкурентные
 confirm возвращают одну запись из `match_confirmations`. Миграция `000009`
 фиксирует награду, двухстороннюю ledger-запись и wallet projection в одной
-транзакции.
+транзакции. Миграция `000012` добавляет к первой casual-победе дня одну
+детерминированную PvP-карту, сохраняя card ID и seed вместе с confirmation.
 
 `internal/activity` нормализует allowlisted `sourceMetadata`, фиксирует SHA-256
 fingerprint snapshot и сериализует sync блокировкой player row. День определяется

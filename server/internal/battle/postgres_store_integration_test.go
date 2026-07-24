@@ -89,7 +89,13 @@ func TestPostgresCasualMatchIsAtomicAndIdempotent(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			confirmations[index], confirmErrors[index] = store.Confirm(ctx, confirm)
+			input := confirm
+			input.CardID = fmt.Sprintf(
+				"30000000-0000-4000-8000-%012d",
+				index+1,
+			)
+			input.CardSeed = uint64(100 + index)
+			confirmations[index], confirmErrors[index] = store.Confirm(ctx, input, core)
 		}()
 	}
 	group.Wait()
@@ -106,28 +112,42 @@ func TestPostgresCasualMatchIsAtomicAndIdempotent(t *testing.T) {
 	}
 	if confirmations[0].Outcome != "win" ||
 		len(confirmations[0].Rewards) != 1 ||
-		confirmations[0].Rewards[0] != (Reward{Currency: "koins", Amount: casualWinKoins}) {
+		confirmations[0].Rewards[0] != (Reward{Currency: "koins", Amount: casualWinKoins}) ||
+		confirmations[0].Card == nil ||
+		confirmations[0].Card.OwnerID != battlePlayer ||
+		confirmations[0].Card.Element != 0 ||
+		confirmations[0].Card.Rarity != 3 ||
+		confirmations[0].Card.BaseDamage != 200 {
 		t.Fatalf("winner confirmation = %#v", confirmations[0])
 	}
+	if core.lootCalls.Load() != 1 {
+		t.Fatalf("loot core calls = %d", core.lootCalls.Load())
+	}
+	assertPvPCardState(t, ctx, pool, battlePlayer, confirmations[0].Card.ID, 1)
 	assertRewardLedger(t, ctx, pool, battlePlayer, casualWinKoins, 1)
 
 	loserConfirmation, err := store.Confirm(ctx, ConfirmCommit{
 		PlayerID: opponentID,
 		MatchID:  commit.MatchID,
+		CardID:   "30000000-0000-4000-8000-100000000000",
+		CardSeed: 1_000,
 		Now:      confirm.Now,
-	})
+	}, core)
 	if err != nil ||
 		loserConfirmation.Outcome != "loss" ||
 		len(loserConfirmation.Rewards) != 1 ||
-		loserConfirmation.Rewards[0].Amount != casualLossKoins {
+		loserConfirmation.Rewards[0].Amount != casualLossKoins ||
+		loserConfirmation.Card != nil {
 		t.Fatalf("loser confirmation = %#v, %v", loserConfirmation, err)
 	}
 	assertRewardLedger(t, ctx, pool, opponentID, casualLossKoins, 1)
 	if _, err := store.Confirm(ctx, ConfirmCommit{
 		PlayerID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 		MatchID:  commit.MatchID,
+		CardID:   "30000000-0000-4000-8000-200000000000",
+		CardSeed: 2_000,
 		Now:      confirm.Now,
-	}); err != ErrMatchNotFound {
+	}, core); err != ErrMatchNotFound {
 		t.Fatalf("outsider confirm error = %v", err)
 	}
 
@@ -194,23 +214,61 @@ func TestPostgresCasualMatchIsAtomicAndIdempotent(t *testing.T) {
 	capped, err := store.Confirm(ctx, ConfirmCommit{
 		PlayerID: battlePlayer,
 		MatchID:  cappedMatchID,
+		CardID:   "30000000-0000-4000-8000-300000000000",
+		CardSeed: 3_000,
 		Now:      commit.Now.Add(time.Hour),
-	})
+	}, core)
 	if err != nil {
 		t.Fatalf("confirm capped match: %v", err)
 	}
-	if capped.Outcome != "win" || len(capped.Rewards) != 0 {
+	if capped.Outcome != "win" || len(capped.Rewards) != 0 || capped.Card != nil {
 		t.Fatalf("capped confirmation = %#v", capped)
 	}
 	cappedRetry, err := store.Confirm(ctx, ConfirmCommit{
 		PlayerID: battlePlayer,
 		MatchID:  cappedMatchID,
+		CardID:   "30000000-0000-4000-8000-400000000000",
+		CardSeed: 4_000,
 		Now:      commit.Now.Add(2 * time.Hour),
-	})
+	}, core)
 	if err != nil || !reflect.DeepEqual(cappedRetry, capped) {
 		t.Fatalf("capped retry = %#v, %v", cappedRetry, err)
 	}
 	assertRewardLedger(t, ctx, pool, battlePlayer, casualWinKoins, 1)
+	assertPvPCardState(t, ctx, pool, battlePlayer, confirmations[0].Card.ID, 1)
+}
+
+func assertPvPCardState(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	playerID string,
+	cardID string,
+	wantRewardCards int,
+) {
+	t.Helper()
+	var rewardCards, matchingCards int
+	var seed []byte
+	if err := pool.QueryRow(ctx, `SELECT
+		COUNT(*) FILTER (WHERE card_id IS NOT NULL),
+		COUNT(*) FILTER (WHERE card_id=$2),
+		(SELECT card_seed FROM match_confirmations
+		  WHERE player_id=$1 AND card_id=$2)
+		FROM match_confirmations WHERE player_id=$1`,
+		playerID,
+		cardID,
+	).Scan(&rewardCards, &matchingCards, &seed); err != nil {
+		t.Fatalf("query PvP reward confirmations: %v", err)
+	}
+	if rewardCards != wantRewardCards || matchingCards != 1 || len(seed) != 8 {
+		t.Fatalf(
+			"PvP reward cards/matching/seed = %d/%d/%x, want %d/1/8-byte",
+			rewardCards,
+			matchingCards,
+			seed,
+			wantRewardCards,
+		)
+	}
 }
 
 func assertRewardLedger(
@@ -251,7 +309,10 @@ func assertRewardLedger(
 	}
 }
 
-type countingCore struct{ calls atomic.Int32 }
+type countingCore struct {
+	calls     atomic.Int32
+	lootCalls atomic.Int32
+}
 
 func (c *countingCore) SimulateCombat(
 	_ context.Context,
@@ -262,6 +323,23 @@ func (c *countingCore) SimulateCombat(
 	return corebridge.CombatResult{
 		Winner: 0, Seed: seed, FinalHPA: 900, FinalHPB: 0,
 		Rounds: []corebridge.CombatRound{{DamageAToB: 100}},
+	}, nil
+}
+
+func (c *countingCore) GenerateLootTechnique(
+	_ context.Context,
+	_ uint64,
+	maxRarity uint8,
+) (corebridge.TechniqueStats, error) {
+	c.lootCalls.Add(1)
+	return corebridge.TechniqueStats{
+		TechniqueType: 1,
+		Rarity:        maxRarity,
+		BaseDamage:    200,
+		Speed:         60,
+		StaminaCost:   10,
+		CritChance:    0.1,
+		Quality:       75,
 	}, nil
 }
 
@@ -294,7 +372,8 @@ func battlePool(t *testing.T, ctx context.Context, url string) *pgxpool.Pool {
 	for _, path := range []string{"../../migrations/000000_base.up.sql",
 		"../../migrations/000006_loadouts.up.sql", "../../migrations/000007_profile_pets_read.up.sql",
 		"../../migrations/000008_casual_matches.up.sql",
-		"../../migrations/000009_match_rewards.up.sql"} {
+		"../../migrations/000009_match_rewards.up.sql",
+		"../../migrations/000012_pvp_card_rewards.up.sql"} {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)

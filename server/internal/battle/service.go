@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,14 +25,14 @@ const (
 
 type ServiceConfig struct {
 	Store  Store
-	Core   corebridge.CombatEngine
+	Core   Engine
 	Now    func() time.Time
 	Random io.Reader
 }
 
 type Service struct {
 	store  Store
-	core   corebridge.CombatEngine
+	core   Engine
 	now    func() time.Time
 	random io.Reader
 }
@@ -185,11 +186,21 @@ func (s *Service) Confirm(
 			http.StatusBadRequest,
 		)
 	}
+	cardID, err := randomUUID(s.random)
+	if err != nil {
+		return ConfirmResponse{}, asAPIError(fmt.Errorf("generate reward card ID: %w", err))
+	}
+	seedBytes := make([]byte, 8)
+	if _, err := io.ReadFull(s.random, seedBytes); err != nil {
+		return ConfirmResponse{}, asAPIError(fmt.Errorf("generate reward card seed: %w", err))
+	}
 	response, err := s.store.Confirm(ctx, ConfirmCommit{
 		PlayerID: playerID,
 		MatchID:  matchID,
+		CardID:   cardID,
+		CardSeed: binary.BigEndian.Uint64(seedBytes),
 		Now:      s.now().UTC(),
-	})
+	}, s.core)
 	return response, mapStoreError(err)
 }
 

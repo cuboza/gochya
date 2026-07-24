@@ -31,7 +31,7 @@ func TestServiceQueuesAndReadsMatch(t *testing.T) {
 	service, err := NewService(ServiceConfig{
 		Store:  store,
 		Core:   fakeCore{},
-		Random: bytes.NewReader(make([]byte, 24)),
+		Random: bytes.NewReader(make([]byte, 48)),
 	})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -55,7 +55,9 @@ func TestServiceQueuesAndReadsMatch(t *testing.T) {
 	}
 	confirmation, err := service.Confirm(context.Background(), battlePlayer, response.MatchID)
 	if err != nil || confirmation.MatchID != response.MatchID ||
-		store.confirmCommit.PlayerID != battlePlayer {
+		store.confirmCommit.PlayerID != battlePlayer ||
+		store.confirmCommit.CardID != "00000000-0000-4000-8000-000000000000" ||
+		store.confirmCommit.CardSeed != 0 {
 		t.Fatalf("Confirm = %#v, %v, commit = %#v", confirmation, err, store.confirmCommit)
 	}
 }
@@ -164,6 +166,7 @@ func (s *fakeStore) History(_ context.Context, _ string, limit int) ([]MatchSumm
 func (s *fakeStore) Confirm(
 	_ context.Context,
 	input ConfirmCommit,
+	_ corebridge.LootEngine,
 ) (ConfirmResponse, error) {
 	s.confirmCommit = input
 	return s.confirmation, nil
@@ -177,4 +180,12 @@ func (fakeCore) SimulateCombat(
 	uint64,
 ) (corebridge.CombatResult, error) {
 	return corebridge.CombatResult{}, nil
+}
+
+func (fakeCore) GenerateLootTechnique(
+	context.Context,
+	uint64,
+	uint8,
+) (corebridge.TechniqueStats, error) {
+	return corebridge.TechniqueStats{}, nil
 }

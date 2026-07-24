@@ -45,9 +45,14 @@ func TestHTTPMatchHistory(t *testing.T) {
 func TestHTTPConfirmsMatch(t *testing.T) {
 	confirmedAt := time.Unix(2, 0).UTC()
 	store := &fakeStore{confirmation: ConfirmResponse{
-		MatchID:     "22222222-2222-4222-8222-222222222222",
-		Outcome:     "win",
-		Rewards:     []Reward{{Currency: "koins", Amount: casualWinKoins}},
+		MatchID: "22222222-2222-4222-8222-222222222222",
+		Outcome: "win",
+		Rewards: []Reward{{Currency: "koins", Amount: casualWinKoins}},
+		Card: &dojo.TechniqueCard{
+			ID:      "33333333-3333-4333-8333-333333333333",
+			OwnerID: battlePlayer,
+			Rarity:  2,
+		},
 		ConfirmedAt: confirmedAt,
 	}}
 	routes := battleRoutes(t, store)
@@ -72,6 +77,8 @@ func TestHTTPConfirmsMatch(t *testing.T) {
 		response.Outcome != "win" ||
 		len(response.Rewards) != 1 ||
 		response.Rewards[0].Amount != casualWinKoins ||
+		response.Card == nil ||
+		response.Card.ID != store.confirmation.Card.ID ||
 		store.confirmCommit.PlayerID != battlePlayer {
 		t.Fatalf("response = %#v, commit = %#v", response, store.confirmCommit)
 	}

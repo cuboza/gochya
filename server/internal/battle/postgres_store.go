@@ -3,6 +3,7 @@ package battle
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/gochya/gochya/server/internal/corebridge"
 	"github.com/gochya/gochya/server/internal/dojo"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -237,6 +239,7 @@ func (s *PostgresStore) History(
 func (s *PostgresStore) Confirm(
 	ctx context.Context,
 	input ConfirmCommit,
+	core corebridge.LootEngine,
 ) (ConfirmResponse, error) {
 	now := input.Now.UTC().Truncate(time.Microsecond)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -254,14 +257,17 @@ func (s *PostgresStore) Confirm(
 	}
 
 	var playerAID, playerBID string
-	var resultJSON []byte
+	var resultJSON, loadoutAJSON, loadoutBJSON []byte
 	var matchCreatedAt time.Time
-	err = tx.QueryRow(ctx, `SELECT player_a::text,player_b::text,result,created_at
+	err = tx.QueryRow(ctx, `SELECT player_a::text,player_b::text,result,
+		loadout_a,loadout_b,created_at
 		FROM matches WHERE id=$2 AND (player_a=$1 OR player_b=$1) FOR UPDATE`,
 		input.PlayerID, input.MatchID).Scan(
 		&playerAID,
 		&playerBID,
 		&resultJSON,
+		&loadoutAJSON,
+		&loadoutBJSON,
 		&matchCreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -320,13 +326,85 @@ func (s *PostgresStore) Confirm(
 	if matchRank > casualRewardedMatchesPerDay {
 		reward = 0
 	}
+	var rewardCard *dojo.TechniqueCard
+	if outcome == "win" {
+		var winRank int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*)
+			FROM matches
+			WHERE mode='casual'
+			  AND (player_a=$1 OR player_b=$1)
+			  AND created_at >= $2
+			  AND created_at < $3
+			  AND (created_at < $4 OR (created_at = $4 AND id <= $5))
+			  AND ((player_a=$1 AND result->>'winner'='a')
+			    OR (player_b=$1 AND result->>'winner'='b'))`,
+			input.PlayerID,
+			dayStart,
+			dayStart.Add(24*time.Hour),
+			matchCreatedAt,
+			input.MatchID,
+		).Scan(&winRank); err != nil {
+			return ConfirmResponse{}, fmt.Errorf("rank casual win reward: %w", err)
+		}
+		if winRank == 1 {
+			loadoutJSON := loadoutAJSON
+			if input.PlayerID == playerBID {
+				loadoutJSON = loadoutBJSON
+			}
+			var winnerSnapshot snapshot
+			if err := json.Unmarshal(loadoutJSON, &winnerSnapshot); err != nil {
+				return ConfirmResponse{}, fmt.Errorf("decode winning loadout snapshot: %w", err)
+			}
+			stats, err := core.GenerateLootTechnique(ctx, input.CardSeed, 3)
+			if err != nil {
+				return ConfirmResponse{}, fmt.Errorf("generate PvP reward card: %w", err)
+			}
+			card := dojo.TechniqueCard{
+				ID:          input.CardID,
+				OwnerID:     input.PlayerID,
+				Type:        stats.TechniqueType,
+				Element:     winnerSnapshot.Combat.Element,
+				Rarity:      stats.Rarity,
+				BaseDamage:  stats.BaseDamage,
+				Speed:       stats.Speed,
+				StaminaCost: stats.StaminaCost,
+				CritChance:  stats.CritChance,
+				Quality:     stats.Quality,
+				CreatedAt:   now,
+			}
+			cardJSON, err := json.Marshal(card)
+			if err != nil {
+				return ConfirmResponse{}, fmt.Errorf("encode PvP reward card: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO technique_cards(
+				id,owner_id,card_data,is_equipped,is_signature,created_at)
+				VALUES($1,$2,$3,FALSE,FALSE,$4)`,
+				card.ID,
+				input.PlayerID,
+				cardJSON,
+				now,
+			); err != nil {
+				return ConfirmResponse{}, fmt.Errorf("insert PvP reward card: %w", err)
+			}
+			rewardCard = &card
+		}
+	}
+	seedBytes := []byte(nil)
+	cardID := any(nil)
+	if rewardCard != nil {
+		seedBytes = make([]byte, 8)
+		binary.BigEndian.PutUint64(seedBytes, input.CardSeed)
+		cardID = rewardCard.ID
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO match_confirmations(
-		match_id,player_id,outcome,koins_awarded,confirmed_at)
-		VALUES($1,$2,$3,$4,$5)`,
+		match_id,player_id,outcome,koins_awarded,card_id,card_seed,confirmed_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7)`,
 		input.MatchID,
 		input.PlayerID,
 		outcome,
 		reward,
+		cardID,
+		seedBytes,
 		now,
 	); err != nil {
 		return ConfirmResponse{}, fmt.Errorf("insert match confirmation: %w", err)
@@ -335,6 +413,7 @@ func (s *PostgresStore) Confirm(
 		MatchID:     input.MatchID,
 		Outcome:     outcome,
 		Rewards:     make([]Reward, 0, 1),
+		Card:        rewardCard,
 		ConfirmedAt: now,
 	}
 	if reward > 0 {
@@ -367,9 +446,28 @@ func existingConfirmation(
 	var outcome string
 	var reward uint32
 	var confirmedAt time.Time
-	err := tx.QueryRow(ctx, `SELECT outcome,koins_awarded,confirmed_at
-		FROM match_confirmations WHERE match_id=$1 AND player_id=$2`,
-		input.MatchID, input.PlayerID).Scan(&outcome, &reward, &confirmedAt)
+	var (
+		cardID        pgtype.Text
+		cardSeed      []byte
+		cardJSON      []byte
+		cardCreatedAt pgtype.Timestamptz
+	)
+	err := tx.QueryRow(ctx, `SELECT confirmations.outcome,
+		confirmations.koins_awarded,confirmations.confirmed_at,
+		confirmations.card_id::text,confirmations.card_seed,
+		cards.card_data,cards.created_at
+		FROM match_confirmations confirmations
+		LEFT JOIN technique_cards cards ON cards.id=confirmations.card_id
+		WHERE confirmations.match_id=$1 AND confirmations.player_id=$2`,
+		input.MatchID, input.PlayerID).Scan(
+		&outcome,
+		&reward,
+		&confirmedAt,
+		&cardID,
+		&cardSeed,
+		&cardJSON,
+		&cardCreatedAt,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ConfirmResponse{}, false, nil
 	}
@@ -387,6 +485,28 @@ func existingConfirmation(
 			Currency: "koins",
 			Amount:   reward,
 		})
+	}
+	if cardID.Valid {
+		if len(cardSeed) != 8 || !cardCreatedAt.Valid {
+			return ConfirmResponse{}, false, errors.New(
+				"stored match confirmation card metadata is invalid",
+			)
+		}
+		var card dojo.TechniqueCard
+		if err := json.Unmarshal(cardJSON, &card); err != nil {
+			return ConfirmResponse{}, false, fmt.Errorf(
+				"decode stored PvP reward card: %w",
+				err,
+			)
+		}
+		card.ID = cardID.String
+		card.OwnerID = input.PlayerID
+		card.CreatedAt = cardCreatedAt.Time.UTC()
+		response.Card = &card
+	} else if len(cardSeed) != 0 || cardCreatedAt.Valid || len(cardJSON) != 0 {
+		return ConfirmResponse{}, false, errors.New(
+			"stored match confirmation has partial card metadata",
+		)
 	}
 	return response, true, nil
 }

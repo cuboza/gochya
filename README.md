@@ -40,7 +40,8 @@ Authenticated profile API возвращает только питомцев т�
 увеличивает его revision при повторе.
 Casual match теперь целиком считается native Rust Core по двум авторитетным
 server-side loadout; PostgreSQL сохраняет seed, обе revision и replay, а
-idempotent retry не создаёт второй бой.
+idempotent retry не создаёт второй бой. Первая casual-победа UTC-дня выдаёт
+детерминированную PvP-карту до Epic и возвращает её при повторном confirm.
 Телефонный игрок может получить первую server-authoritative Technique Card без
 Dojo: после 100 дневной Vitality activity reward детерминированно рассчитывается
 Rust Core из сохранённого seed и конкурентно выдаётся ровно один раз за локальный

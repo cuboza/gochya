@@ -632,7 +632,7 @@ inventory response не попадают.
 ```
 POST   /matchmaking/queue    { mode: "casual" }          → { matchId, status }
 GET    /match/:id                                        → MatchResult
-POST   /match/:id/confirm                                 → { rewards }
+POST   /match/:id/confirm                                 → { rewards, card? }
 GET    /me/matches/history?limit=20                      → MatchSummary[]
 ```
 
@@ -656,17 +656,23 @@ idempotency table. Текущий MVP-matcher синхронно выбирае�
 `POST /v1/match/:id/confirm` принимает пустое тело и не принимает outcome,
 сумму или валюту от клиента. Сервер читает сохранённый `MatchResult` и
 возвращает
-`{ matchId, outcome, rewards: [{ currency, amount }], confirmedAt }`.
+`{ matchId, outcome, rewards: [{ currency, amount }], card?, confirmedAt }`.
 Нормативные суммы — 30/20/10 Koins за win/draw/loss
 (`CORE_FORMULAS.md` §6.3a). Награждаются первые 10 матчей игрока за UTC-день в
 порядке `(created_at ASC, id ASC)`; порядок confirm eligibility не меняет.
+Первая casual-победа игрока в том же стабильном порядке дополнительно выдаёт
+одну Technique Card с потолком Epic. UUID и seed назначает сервер, stats
+вычисляет Rust Core; элемент берётся из сохранённого winning loadout snapshot.
 Каждый участник подтверждает матч отдельно. Повтор и конкурентный retry
-возвращают исходный `confirmedAt` и не создают вторую транзакцию.
+возвращают исходные `confirmedAt` и `card`, не создавая вторую карту или
+транзакцию.
 
 Миграция `000009_match_rewards` создаёт `player_wallet`, двухсторонние
 `transactions` (`amount + counterparty_amount = 0`) и
 `match_confirmations`. Confirmation, ledger и wallet projection фиксируются
-одной PostgreSQL-транзакцией. Redis queue и ожидание до 60 секунд остаются
+одной PostgreSQL-транзакцией. Миграция `000012_pvp_card_rewards` сохраняет
+card ID и 8-byte seed рядом с confirmation; выдача карты входит в ту же
+транзакцию. Redis queue и ожидание до 60 секунд остаются
 следующим rollout; endpoint не имитирует их готовность. Стабильные отказы:
 `loadout_required`, `pet_weak`, `no_opponent`, `match_not_found`,
 `idempotency_conflict`, `core_unavailable`.
