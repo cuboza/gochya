@@ -15,6 +15,7 @@ type PreflightRequest struct {
 type PreflightResponse struct {
 	Nonce                 string    `json:"nonce"`
 	Challenge             string    `json:"challenge"`
+	TraceID               string    `json:"traceId"`
 	EvidenceSchemaVersion uint16    `json:"evidenceSchemaVersion"`
 	ExpiresAt             time.Time `json:"expiresAt"`
 }
@@ -94,6 +95,7 @@ type TechniqueCard struct {
 type SubmitResponse struct {
 	Card            TechniqueCard `json:"card"`
 	EvidenceVerdict string        `json:"evidenceVerdict"`
+	TraceID         string        `json:"traceId"`
 }
 
 type Device struct {
@@ -106,6 +108,7 @@ type Device struct {
 type NonceRecord struct {
 	Value                 string
 	Challenge             string
+	TraceID               string
 	PlayerID              string
 	DeviceID              string
 	AppBuild              string

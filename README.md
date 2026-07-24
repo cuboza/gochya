@@ -22,9 +22,25 @@ token-family reuse detection; Google ID token exchange создаёт или н�
 Samsung Account подключён через OIDC authorization-code flow: backend выдаёт
 state/nonce/PKCE challenge, сам обменивает одноразовый code с confidential
 client credentials и проверяет Samsung RS256 ID token.
+Wear OS device enrollment требует access token, одноразовый server challenge,
+proof-of-possession нового Ed25519-ключа и Play Integrity verdict, привязанный
+к тому же регистрационному payload. Challenge хранится только как SHA-256 и
+потребляется в одной PostgreSQL-транзакции с регистрацией ключа.
+Dojo flow получает стабильный `traceId`, который связывает preflight,
+attestation, Rust Core, PostgreSQL audit и idempotent HTTP-ответ.
+Созданные Technique Cards доступны текущему игроку через authenticated
+cursor-paginated inventory API; приватный Dojo evidence в него не попадает.
+Игрок может атомарно экипировать пять принадлежащих ему карт, выбрать одну
+signature-позицию и читать текущий server-authoritative loadout с монотонной
+ревизией и идемпотентными повторами.
+Authenticated profile API возвращает только питомцев текущего игрока; смена
+активного питомца транзакционно синхронизирует существующий loadout и не
+увеличивает его revision при повторе.
 `server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
-Аппаратные Wear OS/watchOS gate'ы ещё не выполнялись.
+Полная текущая цепочка PostgreSQL migrations теперь стартует из пустой schema,
+без ручного создания базовых таблиц.
+Реальный Wear OS device gate и watchOS App Attest gate ещё не выполнялись.
 
 Локальная проверка:
 

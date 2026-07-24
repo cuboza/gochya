@@ -1,4 +1,4 @@
-package dojo
+package device
 
 import (
 	"encoding/json"
@@ -7,39 +7,21 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/gochya/gochya/server/internal/dojo"
 )
 
-const maxRequestBody = 64 << 10
+const maxRequestBody = 24 << 10
 
 type HTTPHandler struct {
 	service       *Service
-	authenticator PlayerAuthenticator
+	authenticator dojo.PlayerAuthenticator
 	random        io.Reader
-}
-
-type PlayerAuthenticator interface {
-	Authenticate(*http.Request) (string, error)
-}
-
-// HeaderAuthenticator is only a test/staging boundary. Production must inject
-// an authenticator that verifies the access token before returning a player ID.
-type HeaderAuthenticator struct{}
-
-func (HeaderAuthenticator) Authenticate(request *http.Request) (string, error) {
-	playerID := request.Header.Get("X-Player-ID")
-	if playerID == "" {
-		return "", apiError(
-			"unauthenticated",
-			"authenticated player is required",
-			http.StatusUnauthorized,
-		)
-	}
-	return playerID, nil
 }
 
 func NewHTTPHandler(
 	service *Service,
-	authenticator PlayerAuthenticator,
+	authenticator dojo.PlayerAuthenticator,
 	random io.Reader,
 ) (*HTTPHandler, error) {
 	if service == nil || authenticator == nil {
@@ -53,8 +35,8 @@ func NewHTTPHandler(
 
 func (h *HTTPHandler) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/dojo/preflight", h.handlePreflight)
-	mux.HandleFunc("/v1/dojo/submit", h.handleSubmit)
+	mux.HandleFunc("/v1/devices/preflight", h.handlePreflight)
+	mux.HandleFunc("/v1/devices/register", h.handleRegister)
 	return mux
 }
 
@@ -83,11 +65,10 @@ func (h *HTTPHandler) handlePreflight(writer http.ResponseWriter, request *http.
 		h.writeError(writer, requestID, err)
 		return
 	}
-	writer.Header().Set("X-Trace-ID", response.TraceID)
 	h.writeJSON(writer, http.StatusOK, response)
 }
 
-func (h *HTTPHandler) handleSubmit(writer http.ResponseWriter, request *http.Request) {
+func (h *HTTPHandler) handleRegister(writer http.ResponseWriter, request *http.Request) {
 	requestID := h.prepareResponse(writer)
 	if request.Method != http.MethodPost {
 		h.writeError(writer, requestID, apiError(
@@ -102,22 +83,16 @@ func (h *HTTPHandler) handleSubmit(writer http.ResponseWriter, request *http.Req
 		h.writeError(writer, requestID, err)
 		return
 	}
-	var input SubmitRequest
+	var input RegisterRequest
 	if err := decodeJSON(writer, request, &input); err != nil {
 		h.writeError(writer, requestID, err)
 		return
 	}
-	response, err := h.service.Submit(
-		request.Context(),
-		playerID,
-		request.Header.Get("Idempotency-Key"),
-		input,
-	)
+	response, err := h.service.Register(request.Context(), playerID, input)
 	if err != nil {
 		h.writeError(writer, requestID, err)
 		return
 	}
-	writer.Header().Set("X-Trace-ID", response.TraceID)
 	h.writeJSON(writer, http.StatusOK, response)
 }
 
@@ -127,15 +102,13 @@ func (h *HTTPHandler) prepareResponse(writer http.ResponseWriter) string {
 		requestID = fmt.Sprintf("fallback-%d", time.Now().UnixNano())
 	}
 	writer.Header().Set("Content-Type", "application/json")
+	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("X-Request-ID", requestID)
 	return requestID
 }
 
 func (h *HTTPHandler) writeError(writer http.ResponseWriter, requestID string, err error) {
 	apiErr := asAPIError(err)
-	if apiErr.TraceID != "" {
-		writer.Header().Set("X-Trace-ID", apiErr.TraceID)
-	}
 	details := apiErr.Details
 	if details == nil {
 		details = map[string]any{}
@@ -180,7 +153,28 @@ func decodeJSON(writer http.ResponseWriter, request *http.Request, destination a
 		}
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return apiError("invalid_json", "request body must contain one JSON value", http.StatusBadRequest)
+		return apiError(
+			"invalid_json",
+			"request body must contain one JSON value",
+			http.StatusBadRequest,
+		)
 	}
 	return nil
+}
+
+func randomUUID(reader io.Reader) (string, error) {
+	value := make([]byte, 16)
+	if _, err := io.ReadFull(reader, value); err != nil {
+		return "", err
+	}
+	value[6] = (value[6] & 0x0f) | 0x40
+	value[8] = (value[8] & 0x3f) | 0x80
+	return fmt.Sprintf(
+		"%x-%x-%x-%x-%x",
+		value[0:4],
+		value[4:6],
+		value[6:8],
+		value[8:10],
+		value[10:16],
+	), nil
 }

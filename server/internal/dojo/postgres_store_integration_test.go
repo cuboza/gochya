@@ -89,8 +89,10 @@ func TestPostgresStoreConcurrentSubmitIsAtomic(t *testing.T) {
 			t.Fatalf("Submit %d returned another card", index)
 		}
 	}
-	if responses[0].Card.Quality != 64 || responses[0].Card.Element != 2 {
-		t.Fatalf("card = %#v", responses[0].Card)
+	if responses[0].Card.Quality != 64 ||
+		responses[0].Card.Element != 2 ||
+		responses[0].TraceID != preflight.TraceID {
+		t.Fatalf("response = %#v", responses[0])
 	}
 
 	assertPostgresCount(t, ctx, pool, "technique_cards", 1)
@@ -107,6 +109,32 @@ func TestPostgresStoreConcurrentSubmitIsAtomic(t *testing.T) {
 	expectedHash := nonceDigest(preflight.Nonce)
 	if !reflect.DeepEqual(storedNonceHash, expectedHash[:]) || usedAt == nil {
 		t.Fatalf("stored nonce hash or used_at is invalid")
+	}
+	var nonceTraceID string
+	var auditTraceID string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT trace_id::text FROM dojo_nonces WHERE nonce_hash = $1`,
+		expectedHash[:],
+	).Scan(&nonceTraceID); err != nil {
+		t.Fatalf("query nonce trace ID: %v", err)
+	}
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT trace_id::text
+		   FROM dojo_submission_audit
+		  WHERE card_id = $1`,
+		responses[0].Card.ID,
+	).Scan(&auditTraceID); err != nil {
+		t.Fatalf("query audit trace ID: %v", err)
+	}
+	if nonceTraceID != preflight.TraceID || auditTraceID != preflight.TraceID {
+		t.Fatalf(
+			"trace IDs: preflight=%q nonce=%q audit=%q",
+			preflight.TraceID,
+			nonceTraceID,
+			auditTraceID,
+		)
 	}
 
 	_, err = service.Submit(
@@ -393,6 +421,7 @@ func TestPostgresStoredResponseJSONContract(t *testing.T) {
 	response := SubmitResponse{
 		Card:            TechniqueCard{ID: "55555555-5555-4555-8555-555555555555"},
 		EvidenceVerdict: "VALID",
+		TraceID:         "66666666-6666-4666-8666-666666666666",
 	}
 	encoded, err := json.Marshal(response)
 	if err != nil {

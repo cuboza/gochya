@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,108 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestProductionMigrationsBootstrapEmptySchema(t *testing.T) {
+	databaseURL := os.Getenv("GOCHYA_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("GOCHYA_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := schemaValidationTestPool(t, ctx, databaseURL)
+
+	upMigrations := applyAllUpMigrations(t, ctx, pool)
+
+	if err := validateDatabaseSchema(ctx, pool); err != nil {
+		t.Fatalf("validate migrated schema: %v", err)
+	}
+
+	const playerID = "11111111-1111-4111-8111-111111111111"
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO players (
+		     id, username, created_at, auth_method, auth_subject
+		 ) VALUES ($1, 'migration-player', NOW(), 'google', 'migration-subject')`,
+		playerID,
+	); err != nil {
+		t.Fatalf("insert player through production schema: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO pets (
+		     id, owner_id, genome, stage, needs, stats, is_active
+		 ) VALUES (
+		     '22222222-2222-4222-8222-222222222222',
+		     $1,
+		     '{"element":"earth"}',
+		     'baby',
+		     '{"hunger":80,"energy":70,"hygiene":60,"mood":90}',
+		     '{"str":1,"agi":2,"end":3,"foc":4}',
+		     TRUE
+		 )`,
+		playerID,
+	); err != nil {
+		t.Fatalf("insert pet through production schema: %v", err)
+	}
+
+	downMigrations, err := filepath.Glob("../../migrations/*.down.sql")
+	if err != nil {
+		t.Fatalf("find down migrations: %v", err)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(downMigrations)))
+	if len(downMigrations) != len(upMigrations) {
+		t.Fatalf(
+			"migration direction count differs: up=%d down=%d",
+			len(upMigrations),
+			len(downMigrations),
+		)
+	}
+	for _, path := range downMigrations {
+		migration, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read migration %q: %v", path, err)
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("apply migration %q: %v", path, err)
+		}
+	}
+	var playersTable *string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT to_regclass('players')::text`,
+	).Scan(&playersTable); err != nil {
+		t.Fatalf("check base down migration: %v", err)
+	}
+	if playersTable != nil {
+		t.Fatalf("down migrations left table %q", *playersTable)
+	}
+}
+
+func applyAllUpMigrations(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+) []string {
+	t.Helper()
+	upMigrations, err := filepath.Glob("../../migrations/*.up.sql")
+	if err != nil {
+		t.Fatalf("find up migrations: %v", err)
+	}
+	sort.Strings(upMigrations)
+	if len(upMigrations) == 0 {
+		t.Fatal("no up migrations found")
+	}
+	for _, path := range upMigrations {
+		migration, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read migration %q: %v", path, err)
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("apply migration %q: %v", path, err)
+		}
+	}
+	return upMigrations
+}
 
 func TestValidateDatabaseSchema(t *testing.T) {
 	databaseURL := os.Getenv("GOCHYA_TEST_DATABASE_URL")

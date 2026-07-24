@@ -140,14 +140,15 @@ func (s *PostgresStore) PutNonce(ctx context.Context, nonce NonceRecord) error {
 	_, err := s.pool.Exec(
 		ctx,
 		`INSERT INTO dojo_nonces (
-		     nonce_hash, player_id, device_id, app_build, challenge,
+		     nonce_hash, player_id, device_id, app_build, challenge, trace_id,
 		     evidence_schema_version, issued_at, expires_at, used_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		hash[:],
 		nonce.PlayerID,
 		nonce.DeviceID,
 		nonce.AppBuild,
 		nonce.Challenge,
+		nonce.TraceID,
 		nonce.EvidenceSchemaVersion,
 		nonce.IssuedAt,
 		nonce.ExpiresAt,
@@ -163,7 +164,7 @@ func (s *PostgresStore) Nonce(ctx context.Context, value string) (NonceRecord, e
 	hash := nonceDigest(value)
 	record, err := scanNonce(s.pool.QueryRow(
 		ctx,
-		`SELECT challenge, player_id::text, device_id, app_build,
+		`SELECT challenge, trace_id::text, player_id::text, device_id, app_build,
 		        evidence_schema_version, issued_at, expires_at, used_at
 		   FROM dojo_nonces
 		  WHERE nonce_hash = $1`,
@@ -263,7 +264,7 @@ func (s *PostgresStore) CommitSubmit(
 	nonceHash := nonceDigest(input.Nonce)
 	nonce, err := scanNonce(tx.QueryRow(
 		ctx,
-		`SELECT challenge, player_id::text, device_id, app_build,
+		`SELECT challenge, trace_id::text, player_id::text, device_id, app_build,
 		        evidence_schema_version, issued_at, expires_at, used_at
 		   FROM dojo_nonces
 		  WHERE nonce_hash = $1
@@ -279,6 +280,7 @@ func (s *PostgresStore) CommitSubmit(
 	if nonce.PlayerID != input.PlayerID ||
 		nonce.DeviceID != input.DeviceID ||
 		nonce.AppBuild != input.AppBuild ||
+		nonce.TraceID != input.TraceID ||
 		nonce.EvidenceSchemaVersion != input.EvidenceSchemaVersion {
 		return SubmitResponse{}, ErrNonceNotFound
 	}
@@ -328,14 +330,15 @@ func (s *PostgresStore) CommitSubmit(
 		ctx,
 		`INSERT INTO dojo_submission_audit (
 		     card_id, player_id, device_id, evidence_verdict,
-		     app_build, classifier_version, created_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		     app_build, classifier_version, trace_id, created_at
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		input.Response.Card.ID,
 		input.PlayerID,
 		input.DeviceID,
 		input.Response.EvidenceVerdict,
 		input.AppBuild,
 		input.ClassifierVersion,
+		input.TraceID,
 		input.Now,
 	); err != nil {
 		return SubmitResponse{}, fmt.Errorf("insert Dojo audit row: %w", err)
@@ -514,6 +517,7 @@ func scanNonce(row rowScanner, value string) (NonceRecord, error) {
 	var usedAt *time.Time
 	err := row.Scan(
 		&record.Challenge,
+		&record.TraceID,
 		&record.PlayerID,
 		&record.DeviceID,
 		&record.AppBuild,

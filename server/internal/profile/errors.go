@@ -1,9 +1,11 @@
-package dojo
+package profile
 
 import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/gochya/gochya/server/internal/dojo"
 )
 
 type Error struct {
@@ -11,7 +13,6 @@ type Error struct {
 	Message    string
 	HTTPStatus int
 	Details    map[string]any
-	TraceID    string
 	Cause      error
 }
 
@@ -35,6 +36,16 @@ func asAPIError(err error) *Error {
 	if errors.As(err, &target) {
 		return target
 	}
+	var dojoError *dojo.Error
+	if errors.As(err, &dojoError) {
+		return &Error{
+			Code:       dojoError.Code,
+			Message:    dojoError.Message,
+			HTTPStatus: dojoError.HTTPStatus,
+			Details:    dojoError.Details,
+			Cause:      dojoError.Cause,
+		}
+	}
 	return &Error{
 		Code:       "internal_error",
 		Message:    "internal server error",
@@ -42,20 +53,3 @@ func asAPIError(err error) *Error {
 		Cause:      err,
 	}
 }
-
-func withTraceID(err error, traceID string) *Error {
-	apiErr := asAPIError(err)
-	cloned := *apiErr
-	cloned.TraceID = traceID
-	return &cloned
-}
-
-var (
-	ErrDeviceNotFound      = errors.New("device not found")
-	ErrNonceNotFound       = errors.New("nonce not found")
-	ErrNonceUsed           = errors.New("nonce already used")
-	ErrReplayDetected      = errors.New("replay detected")
-	ErrIdempotencyConflict = errors.New("idempotency key reused with another request")
-	ErrSubmissionRate      = errors.New("submission interval is too short")
-	ErrDailyLimit          = errors.New("daily submission limit reached")
-)

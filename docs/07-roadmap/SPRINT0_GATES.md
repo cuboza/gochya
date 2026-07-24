@@ -78,7 +78,7 @@ Wear OS → nonce/attestation → Dojo payload → Go API
 - [ ] Потеря ответа после commit восстанавливается idempotent retry.
 - [ ] Schema/ABI mismatch возвращает управляемую ошибку.
 - [ ] Raw sensor time series отсутствует в network capture, logs и crash reports.
-- [ ] Trace ID связывает preflight, submit, core call, DB transaction и client response.
+- [x] Trace ID связывает preflight, submit, core call, DB transaction и client response.
 
 ## Решение о старте production
 

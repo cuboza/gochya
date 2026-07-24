@@ -1,5 +1,4 @@
--- The players and pets tables are created by the base schema described in
--- docs/03-architecture/BACKEND.md.
+-- players, pets and technique_cards are created by 000000_base.
 
 CREATE TABLE registered_devices (
     player_id       UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
@@ -18,6 +17,7 @@ CREATE TABLE dojo_nonces (
     device_id               TEXT NOT NULL,
     app_build               TEXT NOT NULL,
     challenge               TEXT NOT NULL,
+    trace_id                UUID NOT NULL UNIQUE,
     evidence_schema_version SMALLINT NOT NULL CHECK (evidence_schema_version > 0),
     issued_at               TIMESTAMPTZ NOT NULL,
     expires_at              TIMESTAMPTZ NOT NULL,
@@ -59,12 +59,15 @@ CREATE TABLE dojo_submission_audit (
     heart_fail_reason   SMALLINT NOT NULL DEFAULT 0,
     app_build           TEXT NOT NULL,
     classifier_version  TEXT NOT NULL,
+    trace_id            UUID NOT NULL,
     created_at          TIMESTAMPTZ NOT NULL,
     FOREIGN KEY (player_id, device_id)
         REFERENCES registered_devices(player_id, device_id)
 );
 CREATE INDEX idx_dojo_submission_daily
     ON dojo_submission_audit(player_id, created_at);
+CREATE INDEX idx_dojo_submission_trace
+    ON dojo_submission_audit(trace_id);
 
 -- PostgresStore.CommitSubmit locks the player and nonce rows, checks the
 -- minute/day limits and replay uniqueness, then inserts the card, replay hash,

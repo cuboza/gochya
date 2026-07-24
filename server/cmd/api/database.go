@@ -20,6 +20,9 @@ var requiredDatabaseTables = []string{
 	"dojo_submission_audit",
 	"refresh_tokens",
 	"auth_login_nonces",
+	"device_enrollment_challenges",
+	"player_loadouts",
+	"loadout_idempotency",
 }
 
 func validateDatabaseSchema(ctx context.Context, pool *pgxpool.Pool) error {

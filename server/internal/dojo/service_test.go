@@ -26,16 +26,20 @@ type fakeCore struct {
 	validateCalls int
 	deriveCalls   int
 	lastHeart     corebridge.HeartEvidence
+	traceIDs      []string
 }
 
 func (core *fakeCore) ValidateHeart(
-	_ context.Context,
+	ctx context.Context,
 	heart corebridge.HeartEvidence,
 ) (corebridge.HeartVerdict, error) {
 	core.mu.Lock()
 	defer core.mu.Unlock()
 	core.validateCalls++
 	core.lastHeart = heart
+	if traceID, ok := TraceIDFromContext(ctx); ok {
+		core.traceIDs = append(core.traceIDs, traceID)
+	}
 	passed := heart.Present >= 0.8 &&
 		heart.MeanBPM >= heart.BaselineBPM+8 &&
 		heart.MeanBPM >= 55 &&
@@ -44,7 +48,7 @@ func (core *fakeCore) ValidateHeart(
 }
 
 func (core *fakeCore) DeriveTechnique(
-	_ context.Context,
+	ctx context.Context,
 	metrics corebridge.Metrics,
 	_ corebridge.HeartEvidence,
 	_ float32,
@@ -52,6 +56,9 @@ func (core *fakeCore) DeriveTechnique(
 	core.mu.Lock()
 	defer core.mu.Unlock()
 	core.deriveCalls++
+	if traceID, ok := TraceIDFromContext(ctx); ok {
+		core.traceIDs = append(core.traceIDs, traceID)
+	}
 	return corebridge.TechniqueStats{
 		TechniqueType: metrics.TechniqueType,
 		Rarity:        2,
@@ -114,9 +121,11 @@ func newFixture(t *testing.T) *fixture {
 	return result
 }
 
-func validTestAttestation(_ context.Context, input AttestationInput) error {
+func validTestAttestation(ctx context.Context, input AttestationInput) error {
+	traceID, traced := TraceIDFromContext(ctx)
 	if input.Challenge == "" || input.Evidence.Provider != "test-integrity" ||
-		input.Evidence.Token != "valid-token" || input.RequestHash == "" {
+		input.Evidence.Token != "valid-token" || input.RequestHash == "" ||
+		!traced || traceID == "" {
 		return errors.New("invalid test attestation")
 	}
 	return nil
@@ -202,8 +211,13 @@ func TestPreflightIssuesBoundChallenge(t *testing.T) {
 	fixture := newFixture(t)
 	first := fixture.preflight(t)
 	second := fixture.preflight(t)
-	if first.Nonce == second.Nonce || first.Challenge == second.Challenge {
-		t.Fatal("nonce and challenge must be unique")
+	if first.Nonce == second.Nonce ||
+		first.Challenge == second.Challenge ||
+		first.TraceID == second.TraceID {
+		t.Fatal("nonce, challenge and trace ID must be unique")
+	}
+	if err := validateUUID(first.TraceID); err != nil {
+		t.Fatalf("trace ID = %q: %v", first.TraceID, err)
 	}
 	if first.EvidenceSchemaVersion != EvidenceSchemaV1 {
 		t.Fatalf("schema = %d", first.EvidenceSchemaVersion)
@@ -240,6 +254,16 @@ func TestSubmitIsIdempotentAndPersistsNoDuplicateCard(t *testing.T) {
 	}
 	if first.Card.OwnerID != testPlayer || first.Card.Element != 2 {
 		t.Fatalf("server-authoritative card fields = %#v", first.Card)
+	}
+	if first.TraceID == "" ||
+		len(fixture.core.traceIDs) != 2 ||
+		fixture.core.traceIDs[0] != first.TraceID ||
+		fixture.core.traceIDs[1] != first.TraceID {
+		t.Fatalf(
+			"Core trace IDs = %#v, response trace ID = %q",
+			fixture.core.traceIDs,
+			first.TraceID,
+		)
 	}
 }
 
@@ -278,7 +302,8 @@ func TestConcurrentIdempotentRetriesCommitOneCard(t *testing.T) {
 
 func TestTamperedSignedPayloadIsRejected(t *testing.T) {
 	fixture := newFixture(t)
-	request := fixture.request(t, fixture.preflight(t))
+	preflight := fixture.preflight(t)
+	request := fixture.request(t, preflight)
 	request.Metrics.Precision = 0.1
 
 	_, err := fixture.service.Submit(
@@ -288,6 +313,13 @@ func TestTamperedSignedPayloadIsRejected(t *testing.T) {
 		request,
 	)
 	requireErrorCode(t, err, "signature_invalid")
+	var apiErr *Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %v", err)
+	}
+	if apiErr.TraceID != preflight.TraceID {
+		t.Fatalf("error trace ID = %q, want %q", apiErr.TraceID, preflight.TraceID)
+	}
 	if fixture.store.CardCount() != 0 {
 		t.Fatal("tampered payload created a card")
 	}

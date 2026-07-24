@@ -115,6 +115,7 @@ func (s *MemoryStore) CommitSubmit(_ context.Context, input CommitRequest) (Subm
 		nonce.PlayerID != input.PlayerID ||
 		nonce.DeviceID != input.DeviceID ||
 		nonce.AppBuild != input.AppBuild ||
+		nonce.TraceID != input.TraceID ||
 		nonce.EvidenceSchemaVersion != input.EvidenceSchemaVersion {
 		return SubmitResponse{}, ErrNonceNotFound
 	}

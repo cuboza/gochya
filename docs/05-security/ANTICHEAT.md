@@ -138,12 +138,26 @@ heartGate = (present >= 0.80) AND (mean >= baseline+8) AND (mean >= 55) AND (con
 ### 3.3a. Attestation и подпись Dojo payload
 
 - `/dojo/preflight` возвращает `nonce`, `expiresAt`, `evidenceSchemaVersion` и случайный `challenge` для platform attestation.
+- Тот же ответ возвращает не секретный `traceId`. Backend восстанавливает его
+  по nonce и проводит через attestation, Core и транзакцию; ID сохраняется в
+  audit/idempotency result и возвращается как `X-Trace-ID`. HTTP `request_id`
+  при этом остаётся уникальным для каждой попытки и не заменяет flow trace.
 - Wear OS MVP использует Play Integrity Standard API. Базовая server policy
   требует `PLAY_RECOGNIZED`, `LICENSED`, `MEETS_DEVICE_INTEGRITY`, совпадающие
   package/versionCode/signing certificate и свежий timestamp. Gate 1/3 может
   усилить policy до `MEETS_STRONG_INTEGRITY`, но не ослабить базовый набор.
 - iOS/watchOS в Beta использует App Attest, а при документированном отсутствии поддержки на конкретном target — DeviceCheck с более низким trust tier.
-- При регистрации устройства клиент создаёт аппаратно защищаемый ключ, если платформа это позволяет. Сервер хранит public key и привязку к account/device.
+- При регистрации Wear OS устройства клиент создаёт аппаратно защищаемый
+  Ed25519-ключ и вызывает `/v1/devices/preflight`. Серверный 256-bit challenge
+  на 5 минут связывается с account/device/platform/build, а в PostgreSQL
+  хранится только его SHA-256.
+- `/v1/devices/register` требует proof-of-possession подпись новым device key и
+  Play Integrity Standard token. Оба покрывают один payload с `deviceId`,
+  `platform`, `appBuild`, challenge и public key. Consume challenge и insert
+  key binding атомарны; другой ключ для уже зарегистрированного device
+  отклоняется без неявной ротации.
+- watchOS registration остаётся fail-closed до отдельного App Attest flow:
+  Android attestation нельзя переиспользовать как кроссплатформенный fallback.
 - `/dojo/submit` подписывает канонический payload: `nonce`, schema version, timestamps, metrics, heart evidence, feature summary, classifier version и app build.
 - Play Integrity `requestHash` привязывает verdict к тому же submit и challenge:
   `base64url(SHA-256("gochya-dojo-play-integrity-v1" || 0x00 || challenge || 0x00 || canonical_payload))`

@@ -108,10 +108,15 @@ func (s *Service) Preflight(
 	if err != nil {
 		return PreflightResponse{}, asAPIError(fmt.Errorf("generate challenge: %w", err))
 	}
+	traceID, err := randomUUID(s.random)
+	if err != nil {
+		return PreflightResponse{}, asAPIError(fmt.Errorf("generate trace ID: %w", err))
+	}
 	now := s.now().UTC()
 	record := NonceRecord{
 		Value:                 nonce,
 		Challenge:             challenge,
+		TraceID:               traceID,
 		PlayerID:              playerID,
 		DeviceID:              request.DeviceID,
 		AppBuild:              request.AppBuild,
@@ -119,12 +124,16 @@ func (s *Service) Preflight(
 		IssuedAt:              now,
 		ExpiresAt:             now.Add(s.nonceTTL),
 	}
-	if err := s.store.PutNonce(ctx, record); err != nil {
-		return PreflightResponse{}, asAPIError(fmt.Errorf("store nonce: %w", err))
+	if err := s.store.PutNonce(contextWithTraceID(ctx, traceID), record); err != nil {
+		return PreflightResponse{}, withTraceID(
+			fmt.Errorf("store nonce: %w", err),
+			traceID,
+		)
 	}
 	return PreflightResponse{
 		Nonce:                 record.Value,
 		Challenge:             record.Challenge,
+		TraceID:               record.TraceID,
 		EvidenceSchemaVersion: record.EvidenceSchemaVersion,
 		ExpiresAt:             record.ExpiresAt,
 	}, nil
@@ -135,7 +144,13 @@ func (s *Service) Submit(
 	playerID string,
 	idempotencyKey string,
 	request SubmitRequest,
-) (SubmitResponse, error) {
+) (response SubmitResponse, resultErr error) {
+	traceID := ""
+	defer func() {
+		if resultErr != nil && traceID != "" {
+			resultErr = withTraceID(resultErr, traceID)
+		}
+	}()
 	if err := validateUUID(idempotencyKey); err != nil {
 		return SubmitResponse{}, apiError(
 			"idempotency_key_invalid",
@@ -171,6 +186,8 @@ func (s *Service) Submit(
 	if !now.Before(nonce.ExpiresAt) {
 		return SubmitResponse{}, nonceInvalidError()
 	}
+	traceID = nonce.TraceID
+	ctx = contextWithTraceID(ctx, nonce.TraceID)
 	if nonce.UsedAt != nil {
 		response, ok, err := s.idempotentSubmit(
 			ctx,
@@ -261,7 +278,7 @@ func (s *Service) Submit(
 	if err != nil {
 		return SubmitResponse{}, asAPIError(fmt.Errorf("generate card ID: %w", err))
 	}
-	response := SubmitResponse{
+	response = SubmitResponse{
 		Card: TechniqueCard{
 			ID:          cardID,
 			OwnerID:     playerID,
@@ -276,6 +293,7 @@ func (s *Service) Submit(
 			CreatedAt:   now,
 		},
 		EvidenceVerdict: verdict,
+		TraceID:         nonce.TraceID,
 	}
 	replayHash, err := replayHash(request)
 	if err != nil {
@@ -288,6 +306,7 @@ func (s *Service) Submit(
 		ClassifierVersion:     request.ClassifierVersion,
 		EvidenceSchemaVersion: request.EvidenceSchemaVersion,
 		Nonce:                 request.Nonce,
+		TraceID:               nonce.TraceID,
 		IdempotencyKey:        idempotencyKey,
 		RequestHash:           requestHash,
 		ReplayHash:            replayHash,
@@ -318,7 +337,10 @@ func (s *Service) idempotentSubmit(
 		return SubmitResponse{}, false, nil
 	}
 	if storedHash != requestHash {
-		return SubmitResponse{}, false, idempotencyConflictError()
+		return SubmitResponse{}, false, withTraceID(
+			idempotencyConflictError(),
+			response.TraceID,
+		)
 	}
 	return response, true, nil
 }

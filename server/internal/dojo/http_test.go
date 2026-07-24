@@ -68,6 +68,18 @@ func TestHTTPSuccessDoesNotEchoPrivateEvidence(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body)
 	}
+	var success SubmitResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &success); err != nil {
+		t.Fatalf("decode success: %v", err)
+	}
+	if success.TraceID == "" ||
+		response.Header().Get("X-Trace-ID") != success.TraceID {
+		t.Fatalf(
+			"trace header = %q, response trace = %q",
+			response.Header().Get("X-Trace-ID"),
+			success.TraceID,
+		)
+	}
 	output := response.Body.String()
 	for _, forbidden := range []string{
 		"featureSummary",
@@ -79,6 +91,39 @@ func TestHTTPSuccessDoesNotEchoPrivateEvidence(t *testing.T) {
 		if strings.Contains(output, forbidden) {
 			t.Fatalf("response contains private evidence field %q: %s", forbidden, output)
 		}
+	}
+}
+
+func TestHTTPPreflightReturnsFlowTraceID(t *testing.T) {
+	fixture := newFixture(t)
+	handler, err := NewHTTPHandler(fixture.service, HeaderAuthenticator{}, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/dojo/preflight",
+		strings.NewReader(`{"deviceId":"watch-1","appBuild":"100"}`),
+	)
+	request.Header.Set("X-Player-ID", testPlayer)
+	response := httptest.NewRecorder()
+
+	handler.Routes().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body)
+	}
+	var preflight PreflightResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &preflight); err != nil {
+		t.Fatalf("decode preflight: %v", err)
+	}
+	if preflight.TraceID == "" ||
+		response.Header().Get("X-Trace-ID") != preflight.TraceID {
+		t.Fatalf(
+			"trace header = %q, response trace = %q",
+			response.Header().Get("X-Trace-ID"),
+			preflight.TraceID,
+		)
 	}
 }
 
@@ -99,5 +144,41 @@ func TestHTTPRequiresAuthenticatedPlayer(t *testing.T) {
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body)
+	}
+}
+
+func TestHTTPFailureReturnsFlowTraceID(t *testing.T) {
+	fixture := newFixture(t)
+	handler, err := NewHTTPHandler(fixture.service, HeaderAuthenticator{}, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+	preflight := fixture.preflight(t)
+	input := fixture.request(t, preflight)
+	input.Metrics.Precision = 0.1
+	body, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/dojo/submit",
+		bytes.NewReader(body),
+	)
+	request.Header.Set("X-Player-ID", testPlayer)
+	request.Header.Set("Idempotency-Key", "00000000-0000-4000-8000-000000000042")
+	response := httptest.NewRecorder()
+
+	handler.Routes().ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body)
+	}
+	if response.Header().Get("X-Trace-ID") != preflight.TraceID {
+		t.Fatalf(
+			"trace header = %q, want %q",
+			response.Header().Get("X-Trace-ID"),
+			preflight.TraceID,
+		)
 	}
 }

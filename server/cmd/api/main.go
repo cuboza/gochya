@@ -13,7 +13,10 @@ import (
 
 	"github.com/gochya/gochya/server/internal/auth"
 	"github.com/gochya/gochya/server/internal/corebridge"
+	"github.com/gochya/gochya/server/internal/device"
 	"github.com/gochya/gochya/server/internal/dojo"
+	"github.com/gochya/gochya/server/internal/inventory"
+	"github.com/gochya/gochya/server/internal/profile"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -208,6 +211,48 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create Play Integrity verifier: %w", err)
 	}
+	deviceStore, err := device.NewPostgresStore(pool)
+	if err != nil {
+		return fmt.Errorf("create device enrollment store: %w", err)
+	}
+	deviceService, err := device.NewService(device.ServiceConfig{
+		Store:            deviceStore,
+		Attestation:      attestation,
+		AllowedAppBuilds: config.AllowedAppBuilds,
+	})
+	if err != nil {
+		return fmt.Errorf("create device enrollment service: %w", err)
+	}
+	deviceAPI, err := device.NewHTTPHandler(deviceService, authenticator, nil)
+	if err != nil {
+		return fmt.Errorf("create device enrollment HTTP API: %w", err)
+	}
+	inventoryStore, err := inventory.NewPostgresStore(pool)
+	if err != nil {
+		return fmt.Errorf("create inventory store: %w", err)
+	}
+	inventoryService, err := inventory.NewService(inventoryStore)
+	if err != nil {
+		return fmt.Errorf("create inventory service: %w", err)
+	}
+	inventoryAPI, err := inventory.NewHTTPHandler(inventoryService, authenticator, nil)
+	if err != nil {
+		return fmt.Errorf("create inventory HTTP API: %w", err)
+	}
+	profileStore, err := profile.NewPostgresStore(pool)
+	if err != nil {
+		return fmt.Errorf("create profile store: %w", err)
+	}
+	profileService, err := profile.NewService(profile.ServiceConfig{
+		Store: profileStore,
+	})
+	if err != nil {
+		return fmt.Errorf("create profile service: %w", err)
+	}
+	profileAPI, err := profile.NewHTTPHandler(profileService, authenticator, nil)
+	if err != nil {
+		return fmt.Errorf("create profile HTTP API: %w", err)
+	}
 	service, err := dojo.NewService(dojo.ServiceConfig{
 		Store:                     store,
 		Core:                      core,
@@ -224,6 +269,15 @@ func run() error {
 	}
 	application := http.NewServeMux()
 	application.Handle("/v1/auth/", authAPI.Routes())
+	application.Handle("/v1/devices/", deviceAPI.Routes())
+	inventoryRoutes := inventoryAPI.Routes()
+	application.Handle("/v1/me/techniques", inventoryRoutes)
+	application.Handle("/v1/me/techniques/equip", inventoryRoutes)
+	application.Handle("/v1/me/loadout", inventoryRoutes)
+	profileRoutes := profileAPI.Routes()
+	application.Handle("/v1/me", profileRoutes)
+	application.Handle("/v1/me/pets", profileRoutes)
+	application.Handle("/v1/me/pets/", profileRoutes)
 	application.Handle("/", api.Routes())
 
 	server := &http.Server{

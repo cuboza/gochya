@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS technique_cards;
+DROP TABLE IF EXISTS pets;
+DROP TABLE IF EXISTS players;

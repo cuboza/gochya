@@ -87,6 +87,13 @@ func deriveTechnique(m PunchMetrics, h HeartRateEvidence) TechniqueStats {
 
 ## 4. ОСНОВНЫЕ СУЩНОСТИ БД (PostgreSQL)
 
+Реализованный vertical slice не требует вручную подготовленных таблиц:
+`server/migrations/000000_base.up.sql` создаёт `players`, `pets` и
+`technique_cards`, а последующие миграции добавляют Dojo, auth session/login
+nonces, device enrollment, loadout и профильные ограничения. Integration test
+применяет всю цепочку к пустой schema, проверяет startup contract и затем
+откатывает её в обратном порядке.
+
 ```sql
 -- Профиль игрока
 CREATE TABLE players (
@@ -446,6 +453,51 @@ tokens и email не сохраняются. Прежний контракт `{a
 login. Реальные partner credentials и PKCE проходят отдельный device gate перед
 rollout; fallback, ослабляющий binding, запрещён.
 
+### Device enrollment
+
+```
+POST   /v1/devices/preflight { deviceId, platform, appBuild }
+    → { challenge, expiresAt }
+POST   /v1/devices/register  { deviceId, platform, appBuild, challenge,
+                               publicKey, attestation, proofSignature }
+    → { deviceId, platform, registeredAt }
+```
+
+Оба endpoint требуют GOCHYA access token. Для Wear OS `platform` строго равен
+`wear_os`, `appBuild` — allowlisted десятичный Play `versionCode`, `publicKey` —
+32-byte Ed25519 key в unpadded base64url. Preflight создаёт 256-bit challenge с
+TTL 5 минут и связывает его в PostgreSQL с player/device/platform/build; в БД
+хранится только SHA-256 challenge.
+
+Клиент подписывает новым device private key точные байты:
+
+```text
+canonical_json = {"version":1,"deviceId":...,"platform":...,
+                  "appBuild":...,"challenge":...,"publicKey":...}
+canonical = "gochya-device-enrollment-signature-v1" || 0x00 || canonical_json
+proofSignature = base64url_no_padding(Ed25519.Sign(device_private_key, canonical))
+requestHash = base64url_no_padding(SHA-256(
+  "gochya-device-enrollment-play-integrity-v1" || 0x00 ||
+  challenge || 0x00 || canonical
+))
+```
+
+Play Integrity тем самым подтверждает разрешённый build/окружение для запроса,
+который содержит тот же public key, а `proofSignature` подтверждает владение
+соответствующим private key. После проверки attestation backend блокирует
+challenge и строку игрока, затем одной транзакцией вставляет
+`registered_devices` и помечает challenge использованным. Параллельный replay
+не создаёт второй key binding. Уже активный идентичный key binding с новым
+challenge возвращает исходный `registeredAt`; другой ключ, platform или
+disabled state дают `409 device_key_conflict` и требуют будущего явного
+recovery/revoke flow. Неявной ротации ключа нет.
+
+Wear OS — единственная разрешённая платформа этого endpoint. watchOS остаётся
+fail-closed с `platform_unsupported` до отдельного App Attest enrollment.
+Остальные стабильные отказы: `enrollment_challenge_invalid`,
+`enrollment_replay_detected`, `public_key_invalid`, `signature_invalid`,
+`unsupported_build`, `attestation_invalid`, `attestation_unavailable`.
+
 ### Profile / Pets
 ```
 GET    /me                                                → PlayerProfile
@@ -458,16 +510,57 @@ POST   /me/pets/:id/play                                  → Pet
 POST   /me/pets/:id/sleep                                 → Pet
 ```
 
+Реализованы `GET /v1/me`, `GET /v1/me/pets`,
+`GET /v1/me/pets/:id` и `POST /v1/me/pets/:id/activate`. Все endpoint'ы
+требуют access token и никогда не читают питомца без фильтра по текущему
+player ID. Список детерминированно возвращает активного питомца первым, затем
+сортирует по `(created_at ASC, id ASC)`.
+
+Активация естественно идемпотентна: строка игрока сериализует конкурентные
+запросы, повтор уже активного питомца ничего не меняет. При реальной смене
+предыдущий active flag снимается, новый устанавливается, а существующий
+`player_loadouts.pet_id` и его `revision` обновляются в той же транзакции.
+Миграция `000007_profile_pets_read` добавляет покрывающий индекс и DB constraints
+для точного набора полей `needs` (`u8`, 0–100) и `stats` (`u32`). Decoder
+повторно проверяет тот же контракт fail-closed. Стабильные отказы:
+`profile_not_found`, `pet_not_found`, `pet_id_invalid`.
+
 ### Training / Dojo
 ```
-POST   /dojo/preflight       { deviceId, appBuild }      → { nonce, challenge, evidenceSchemaVersion, expiresAt }
+POST   /dojo/preflight       { deviceId, appBuild }      → { nonce, challenge, traceId, evidenceSchemaVersion, expiresAt }
 POST   /dojo/submit          { deviceId, nonce, evidenceSchemaVersion, recordedAtMs, metrics,
                                heartEvidence, featureSummary, classifierVersion, appBuild,
                                attestation, payloadSignature }
-                                                            → { card: TechniqueCard, evidenceVerdict }
-GET    /me/techniques                                    → TechniqueCard[]
+                                                            → { card: TechniqueCard, evidenceVerdict, traceId }
+GET    /me/techniques?limit=&cursor=                     → { items: TechniqueCard[], next_cursor? }
 POST   /me/techniques/equip   { cardIds[], signatureIdx } → Loadout
+GET    /me/loadout                                        → Loadout
 ```
+
+Реализованный `GET /v1/me/techniques` требует access token и возвращает
+`{ items, next_cursor? }`. `limit` по умолчанию 20, допустимый диапазон 1–100.
+Cursor кодирует последнюю пару `(created_at, id)` как канонический unpadded
+base64url; запрос сортируется по обоим полям в descending-порядке, поэтому
+карты с одинаковым timestamp не пропускаются и не дублируются между страницами.
+PostgreSQL использует индекс `(owner_id, created_at DESC, id DESC)` из migration
+`000005_technique_pagination`. Поля `id`, `ownerId`, `createdAt` берутся из
+авторитетных колонок, а не из JSONB; время нормализуется в UTC независимо от
+timezone соединения. Attestation, подпись и privacy-safe feature summary в
+inventory response не попадают.
+
+Реализованный `POST /v1/me/techniques/equip` требует access token,
+`Idempotency-Key: <uuid>`, ровно пять уникальных UUID принадлежащих игроку карт
+и `signatureIdx` в диапазоне 0–4. Активный питомец определяется сервером.
+Атомарная транзакция блокирует игрока, проверяет питомца и владение всеми
+картами, записывает авторитетный `player_loadouts` и обновляет карточные флаги
+как read projection. Ответ и `GET /v1/me/loadout` имеют вид
+`{ petId, cardIds, signatureIdx, revision, updatedAt }`; `revision` монотонно
+растёт. Идентичный retry в течение 24 часов возвращает исходный ответ без новой
+ревизии, а повтор ключа с другим запросом возвращает
+`409 idempotency_conflict`. Остальные доменные отказы:
+`active_pet_required`, `loadout_cards_invalid`, `loadout_not_found`.
+Схему и отдельное пространство idempotency создаёт
+`000006_loadouts`, поэтому equip-ключ не может пересечься с типом ответа Dojo.
 
 > ⚠️ **Контракт приведён в соответствие с `ANTICHEAT.md` §3 (исправление аудита).**
 > - `preflight` **выдаёт серверный `nonce`** (TTL 5 мин, одноразовый) — без него
@@ -496,6 +589,12 @@ POST   /me/techniques/equip   { cardIds[], signatureIdx } → Loadout
 > `FOR UPDATE`, а карта, audit, replay hash, idempotency result и `used_at`
 > фиксируются одной транзакцией. Bearer nonce в БД не хранится — только SHA-256.
 > Layout находится в `server/migrations/000001_dojo.up.sql`.
+> Preflight создаёт отдельный UUID `traceId`, не являющийся bearer-секретом.
+> Сервер восстанавливает его по хэшу nonce и передаёт через Go context в
+> attestation verifier, Rust Core и PostgreSQL Store. Тот же ID сохраняется в
+> `dojo_submission_audit`, idempotent response и возвращается клиенту в
+> `traceId`/`X-Trace-ID`; `X-Request-ID` уникален для каждой HTTP-попытки.
+> Ошибка после успешного распознавания nonce также содержит `X-Trace-ID`.
 >
 > Wear OS использует Play Integrity Standard API. Клиент передаёт
 > `attestation.provider = "play_integrity_standard"`, а `appBuild` содержит

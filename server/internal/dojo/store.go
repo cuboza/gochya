@@ -12,6 +12,7 @@ type CommitRequest struct {
 	ClassifierVersion     string
 	EvidenceSchemaVersion uint16
 	Nonce                 string
+	TraceID               string
 	IdempotencyKey        string
 	RequestHash           [32]byte
 	ReplayHash            [32]byte
