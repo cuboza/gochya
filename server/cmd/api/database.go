@@ -23,6 +23,8 @@ var requiredDatabaseTables = []string{
 	"device_enrollment_challenges",
 	"player_loadouts",
 	"loadout_idempotency",
+	"matches",
+	"match_idempotency",
 }
 
 func validateDatabaseSchema(ctx context.Context, pool *pgxpool.Pool) error {

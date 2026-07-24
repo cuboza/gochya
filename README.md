@@ -38,6 +38,9 @@ signature-позицию и читать текущий server-authoritative loa
 Authenticated profile API возвращает только питомцев текущего игрока; смена
 активного питомца транзакционно синхронизирует существующий loadout и не
 увеличивает его revision при повторе.
+Casual match теперь целиком считается native Rust Core по двум авторитетным
+server-side loadout; PostgreSQL сохраняет seed, обе revision и replay, а
+idempotent retry не создаёт второй бой.
 `server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 Полная текущая цепочка PostgreSQL migrations теперь стартует из пустой schema,

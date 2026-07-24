@@ -18,6 +18,8 @@
   слинкованный cgo ABI — формулы в Go не дублируются;
 - deterministic combat доступен через тот же native Core как компактный
   `MatchV1 → MatchResultV1` snapshot с максимумом 20 раундов;
+- `POST /v1/matchmaking/queue` создаёт idempotent casual match по двум
+  серверным loadout, а `GET /v1/match/:id` отдаёт сохранённый replay участнику;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -55,6 +57,14 @@ page size равен 20, максимум — 100. `id`, `ownerId` и `createdAt
 revision. Миграция `000007` добавляет индекс чтения и ограничения точной формы
 `needs`/`stats`; Go decoder также fail-closed отклоняет неполные, расширенные и
 выходящие за диапазоны Rust Core значения.
+
+`internal/battle` реализует синхронный MVP-matcher для casual режима. Клиент
+передаёт только `{ "mode": "casual" }` и UUID `Idempotency-Key`; loadout,
+pet/card stats, seed и opponent выбирает сервер. PostgreSQL-транзакция
+фиксирует обе loadout revision и snapshots, вызывает native Rust combat и
+сохраняет replay до ответа. Временная advisory lock сериализует создание
+матчей до внедрения Redis queue; повтор ключа в течение 24 часов не запускает
+Core второй раз. Читать результат могут только оба участника.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и
@@ -191,6 +201,8 @@ GET  /v1/me
 GET  /v1/me/pets
 GET  /v1/me/pets/:id
 POST /v1/me/pets/:id/activate
+POST /v1/matchmaking/queue
+GET  /v1/match/:id
 GET  /v1/me/techniques?limit=&cursor=
 POST /v1/me/techniques/equip
 GET  /v1/me/loadout

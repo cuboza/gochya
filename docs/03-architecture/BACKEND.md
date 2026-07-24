@@ -629,11 +629,28 @@ inventory response не попадают.
 
 ### PvP
 ```
-POST   /matchmaking/queue    { loadout, mode }           → { matchId }
+POST   /matchmaking/queue    { mode: "casual" }          → { matchId, status }
 GET    /match/:id                                        → MatchResult
 POST   /match/:id/confirm                                 → { rewards }
 GET    /me/matches/history?limit=20                      → MatchSummary[]
 ```
+
+Реализованный `POST /v1/matchmaking/queue` не принимает клиентский loadout:
+сервер читает обе авторитетные строки `player_loadouts`, pet stats/genome/mood
+и пять принадлежащих владельцу card snapshots. Запрос требует access token,
+`Idempotency-Key: <uuid>` и пока поддерживает только `casual`. В одной
+PostgreSQL-транзакции фиксируются обе loadout revision, случайный 63-bit seed,
+snapshot входов и результат native `gochya_simulate_combat_v1`. Повтор ключа
+возвращает исходный `matchId` без второго Core-вызова.
+
+`GET /v1/match/:id` возвращает сохранённый replay только одному из двух
+участников. Миграция `000008_casual_matches` создаёт `matches` и отдельную
+idempotency table. Текущий MVP-matcher синхронно выбирает первый доступный
+не-weak loadout и сериализует создание матчей PostgreSQL advisory lock.
+Redis queue, ожидание до 60 секунд, history, confirm и rewards ledger остаются
+следующим rollout; endpoint не имитирует их готовность. Стабильные отказы:
+`loadout_required`, `pet_weak`, `no_opponent`, `match_not_found`,
+`idempotency_conflict`, `core_unavailable`.
 
 ### Breeding
 ```

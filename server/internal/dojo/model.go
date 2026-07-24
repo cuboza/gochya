@@ -88,6 +88,7 @@ type TechniqueCard struct {
 	StaminaCost uint16    `json:"staminaCost"`
 	CritChance  float32   `json:"critChance"`
 	Effect      uint8     `json:"effect"`
+	EffectValue float32   `json:"effectValue,omitempty"`
 	Quality     uint8     `json:"quality"`
 	CreatedAt   time.Time `json:"createdAt"`
 }

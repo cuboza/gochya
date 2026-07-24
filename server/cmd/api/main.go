@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gochya/gochya/server/internal/auth"
+	"github.com/gochya/gochya/server/internal/battle"
 	"github.com/gochya/gochya/server/internal/corebridge"
 	"github.com/gochya/gochya/server/internal/device"
 	"github.com/gochya/gochya/server/internal/dojo"
@@ -253,6 +254,21 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create profile HTTP API: %w", err)
 	}
+	battleStore, err := battle.NewPostgresStore(pool)
+	if err != nil {
+		return fmt.Errorf("create battle store: %w", err)
+	}
+	battleService, err := battle.NewService(battle.ServiceConfig{
+		Store: battleStore,
+		Core:  core,
+	})
+	if err != nil {
+		return fmt.Errorf("create battle service: %w", err)
+	}
+	battleAPI, err := battle.NewHTTPHandler(battleService, authenticator, nil)
+	if err != nil {
+		return fmt.Errorf("create battle HTTP API: %w", err)
+	}
 	service, err := dojo.NewService(dojo.ServiceConfig{
 		Store:                     store,
 		Core:                      core,
@@ -278,6 +294,9 @@ func run() error {
 	application.Handle("/v1/me", profileRoutes)
 	application.Handle("/v1/me/pets", profileRoutes)
 	application.Handle("/v1/me/pets/", profileRoutes)
+	battleRoutes := battleAPI.Routes()
+	application.Handle("/v1/matchmaking/queue", battleRoutes)
+	application.Handle("/v1/match/", battleRoutes)
 	application.Handle("/", api.Routes())
 
 	server := &http.Server{
