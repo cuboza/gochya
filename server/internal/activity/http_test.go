@@ -54,6 +54,46 @@ func TestHTTPActivitySync(t *testing.T) {
 	}
 }
 
+func TestHTTPWeeklyActivity(t *testing.T) {
+	now := time.Date(2026, time.July, 24, 8, 30, 0, 0, time.UTC)
+	expected := []DailyActivity{{
+		Date: "2026-07-24",
+		Snapshot: Snapshot{
+			SchemaVersion:   SnapshotSchemaVersion,
+			TimestampMillis: now.UnixMilli(),
+			Steps:           10_000,
+		},
+		Vitality:        104,
+		VitalityAwarded: 104,
+		UpdatedAt:       now,
+	}}
+	store := &fakeStore{week: expected}
+	routes := activityRoutes(t, store, now)
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/me/activity/week",
+		nil,
+	)
+	request.Header.Set("X-Player-ID", activityPlayerID)
+	recorder := httptest.NewRecorder()
+
+	routes.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+	}
+	var response []DailyActivity
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode weekly activity: %v", err)
+	}
+	if len(response) != 1 ||
+		response[0].Date != expected[0].Date ||
+		response[0].Snapshot.Steps != 10_000 ||
+		store.weekPlayer != activityPlayerID {
+		t.Fatalf("response/player = %#v/%q", response, store.weekPlayer)
+	}
+}
+
 func TestHTTPActivitySyncBoundaries(t *testing.T) {
 	now := time.Date(2026, time.July, 24, 8, 30, 0, 0, time.UTC)
 	validBody, err := json.Marshal(validSyncRequest(now))
@@ -111,6 +151,29 @@ func TestHTTPActivitySyncBoundaries(t *testing.T) {
 			auth:       true,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "invalid_json",
+		},
+		{
+			name:       "weekly authentication required",
+			method:     http.MethodGet,
+			target:     "/v1/me/activity/week",
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "unauthenticated",
+		},
+		{
+			name:       "weekly method rejected",
+			method:     http.MethodPost,
+			target:     "/v1/me/activity/week",
+			auth:       true,
+			wantStatus: http.StatusMethodNotAllowed,
+			wantCode:   "method_not_allowed",
+		},
+		{
+			name:       "weekly query rejected",
+			method:     http.MethodGet,
+			target:     "/v1/me/activity/week?days=30",
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_query",
 		},
 	}
 	for _, test := range tests {

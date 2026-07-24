@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/gochya/gochya/server/internal/corebridge"
 )
@@ -13,6 +14,7 @@ type Store interface {
 		SyncCommit,
 		corebridge.ActivityEngine,
 	) (SyncResponse, error)
+	Week(context.Context, string, time.Time) ([]DailyActivity, error)
 }
 
 var (

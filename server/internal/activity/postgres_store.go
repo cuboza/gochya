@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"time"
@@ -210,6 +211,123 @@ func (s *PostgresStore) Sync(
 		Goals:            publicGoals(goals),
 		SnapshotAccepted: true,
 	}, nil
+}
+
+func (s *PostgresStore) Week(
+	ctx context.Context,
+	playerID string,
+	now time.Time,
+) ([]DailyActivity, error) {
+	var timezone string
+	err := s.pool.QueryRow(
+		ctx,
+		`SELECT COALESCE(NULLIF(timezone, ''), 'UTC')
+		   FROM players
+		  WHERE id = $1`,
+		playerID,
+	).Scan(&timezone)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPlayerNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query activity player timezone: %w", err)
+	}
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return nil, fmt.Errorf("load player timezone %q: %w", timezone, err)
+	}
+	endDay := localDay(now, location)
+	startDate := endDay.AddDate(0, 0, -6).Format(time.DateOnly)
+	endDate := endDay.Format(time.DateOnly)
+	rows, err := s.pool.Query(
+		ctx,
+		`SELECT activity_date::text,
+		        snapshot,
+		        vitality_total,
+		        vitality_awarded,
+		        stat_gains,
+		        goals,
+		        source_metadata,
+		        updated_at
+		   FROM daily_activity
+		  WHERE player_id = $1
+		    AND activity_date BETWEEN $2::DATE AND $3::DATE
+		  ORDER BY activity_date ASC`,
+		playerID,
+		startDate,
+		endDate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query weekly activity: %w", err)
+	}
+	defer rows.Close()
+	response := make([]DailyActivity, 0, 7)
+	for rows.Next() {
+		var (
+			item          DailyActivity
+			snapshotJSON  []byte
+			statGainsJSON []byte
+			goalsJSON     []byte
+		)
+		if err := rows.Scan(
+			&item.Date,
+			&snapshotJSON,
+			&item.Vitality,
+			&item.VitalityAwarded,
+			&statGainsJSON,
+			&goalsJSON,
+			&item.SourceMetadata,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan weekly activity: %w", err)
+		}
+		if err := decodeStoredSnapshot(snapshotJSON, &item.Snapshot); err != nil {
+			return nil, fmt.Errorf(
+				"decode activity snapshot for %s: %w",
+				item.Date,
+				err,
+			)
+		}
+		if err := json.Unmarshal(statGainsJSON, &item.StatGains); err != nil {
+			return nil, fmt.Errorf(
+				"decode activity stat gains for %s: %w",
+				item.Date,
+				err,
+			)
+		}
+		if err := json.Unmarshal(goalsJSON, &item.Goals); err != nil {
+			return nil, fmt.Errorf(
+				"decode activity goals for %s: %w",
+				item.Date,
+				err,
+			)
+		}
+		item.UpdatedAt = item.UpdatedAt.UTC()
+		response = append(response, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate weekly activity: %w", err)
+	}
+	return response, nil
+}
+
+func decodeStoredSnapshot(data []byte, output *Snapshot) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(output); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("one JSON object is required")
+	}
+	if output.SchemaVersion != SnapshotSchemaVersion ||
+		output.TimestampMillis <= 0 ||
+		len(output.Workouts) > corebridge.MaxActivityWorkouts ||
+		output.SleepQuality > 100 ||
+		output.StressLevel > 100 {
+		return errors.New("stored snapshot contract is invalid")
+	}
+	return nil
 }
 
 func lockActivityPlayer(

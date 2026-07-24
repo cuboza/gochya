@@ -138,6 +138,27 @@ func (s *Service) Sync(
 	return response, mapStoreError(err)
 }
 
+func (s *Service) Week(
+	ctx context.Context,
+	playerID string,
+) ([]DailyActivity, error) {
+	if strings.TrimSpace(playerID) == "" {
+		return nil, apiError(
+			"identity_invalid",
+			"authenticated player is required",
+			http.StatusBadRequest,
+		)
+	}
+	response, err := s.store.Week(ctx, playerID, s.now().UTC())
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	if response == nil {
+		response = []DailyActivity{}
+	}
+	return response, nil
+}
+
 func activitySource(raw string) (uint8, string, error) {
 	source := strings.ToLower(strings.TrimSpace(raw))
 	switch source {

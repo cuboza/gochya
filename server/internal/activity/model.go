@@ -65,6 +65,17 @@ type SyncResponse struct {
 	SnapshotAccepted bool       `json:"snapshotAccepted"`
 }
 
+type DailyActivity struct {
+	Date            string    `json:"date"`
+	Snapshot        Snapshot  `json:"snapshot"`
+	Vitality        uint16    `json:"vitality"`
+	VitalityAwarded uint16    `json:"vitalityAwarded"`
+	StatGains       StatGains `json:"statGains"`
+	Goals           Goals     `json:"goals"`
+	SourceMetadata  string    `json:"sourceMetadata"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
 type SyncCommit struct {
 	PlayerID       string
 	Snapshot       corebridge.ActivitySnapshot

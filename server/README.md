@@ -24,7 +24,8 @@
   `POST /v1/match/:id/confirm` один раз начисляет авторитетную награду;
 - `POST /v1/sync/activity` принимает нормализованный дневной health snapshot,
   вычисляет adaptive goals, vitality и stat gains через Rust Core и применяет
-  только ещё не начисленную дельту;
+  только ещё не начисленную дельту; `GET /v1/me/activity/week` возвращает
+  текущему игроку семь local-calendar days в хронологическом порядке;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -226,6 +227,7 @@ GET  /v1/me/pets/:id
 POST /v1/me/pets/:id/activate
 POST /v1/matchmaking/queue
 POST /v1/sync/activity
+GET  /v1/me/activity/week
 GET  /v1/match/:id
 POST /v1/match/:id/confirm
 GET  /v1/me/matches/history?limit=

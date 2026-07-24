@@ -318,7 +318,9 @@ func run() error {
 	application.Handle("/v1/matchmaking/queue", battleRoutes)
 	application.Handle("/v1/match/", battleRoutes)
 	application.Handle("/v1/me/matches/history", battleRoutes)
-	application.Handle("/v1/sync/activity", activityAPI.Routes())
+	activityRoutes := activityAPI.Routes()
+	application.Handle("/v1/sync/activity", activityRoutes)
+	application.Handle("/v1/me/activity/week", activityRoutes)
 	application.Handle("/", api.Routes())
 
 	server := &http.Server{

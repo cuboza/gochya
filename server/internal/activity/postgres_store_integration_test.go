@@ -171,6 +171,31 @@ func TestPostgresActivitySyncIsAtomicAndIdempotent(t *testing.T) {
 			core.activityCalls.Load(),
 		)
 	}
+	week, err := store.Week(ctx, activityPlayerID, now)
+	if err != nil {
+		t.Fatalf("Week: %v", err)
+	}
+	if len(week) != 2 ||
+		week[0].Date != "2026-07-23" ||
+		week[0].Snapshot.Steps != 8_000 ||
+		week[1].Date != "2026-07-24" ||
+		week[1].Snapshot.Steps != 5_000 ||
+		week[1].Vitality != 80 ||
+		week[1].VitalityAwarded != 130 ||
+		week[1].StatGains != (StatGains{
+			Strength: 3, Agility: 4, Endurance: 5,
+		}) ||
+		week[1].Goals != (Goals{
+			Steps: 9_200, SleepHours: 7.7, ActiveCalories: 460,
+		}) ||
+		week[1].SourceMetadata != "healthkit://watch" ||
+		week[1].UpdatedAt.Location() != time.UTC {
+		t.Fatalf("week = %#v", week)
+	}
+	empty, err := store.Week(ctx, activityPlayerID, now.AddDate(0, 0, 8))
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty future week = %#v, %v", empty, err)
+	}
 }
 
 type integrationActivityCore struct {
@@ -364,6 +389,17 @@ func seedActivityData(
 	now time.Time,
 ) {
 	t.Helper()
+	previousSnapshotJSON, err := json.Marshal(Snapshot{
+		SchemaVersion:   SnapshotSchemaVersion,
+		TimestampMillis: now.Add(-24 * time.Hour).UnixMilli(),
+		Steps:           8_000,
+		SleepMinutes:    420,
+		ActiveCalories:  400,
+		Workouts:        []Workout{},
+	})
+	if err != nil {
+		t.Fatalf("encode previous activity snapshot: %v", err)
+	}
 	if _, err := pool.Exec(
 		ctx,
 		`INSERT INTO players(
@@ -394,7 +430,7 @@ func seedActivityData(
 		     sleep_minutes,active_calories,goals,vitality_total,
 		     vitality_awarded,stat_gains,stat_gains_applied,
 		     source_metadata,created_at,updated_at)
-		 VALUES($1,'2026-07-23',$2,'{}',$3,8000,420,400,
+		 VALUES($1,'2026-07-23',$2,$5,$3,8000,420,400,
 		        '{"steps":9200,"sleepHours":7.7,"activeCalories":460}',
 		        50,50,'{"str":1,"agi":1,"end":1,"foc":1}',
 		        '{"str":1,"agi":1,"end":1,"foc":1}',
@@ -403,6 +439,7 @@ func seedActivityData(
 		activityPetID,
 		make([]byte, 32),
 		now.Add(-24*time.Hour),
+		previousSnapshotJSON,
 	); err != nil {
 		t.Fatalf("seed previous daily activity: %v", err)
 	}

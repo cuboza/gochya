@@ -13,9 +13,13 @@ import (
 const activityPlayerID = "11111111-1111-4111-8111-111111111111"
 
 type fakeStore struct {
-	response SyncResponse
-	err      error
-	commits  []SyncCommit
+	response   SyncResponse
+	err        error
+	commits    []SyncCommit
+	week       []DailyActivity
+	weekErr    error
+	weekPlayer string
+	weekNow    time.Time
 }
 
 func (s *fakeStore) Sync(
@@ -25,6 +29,16 @@ func (s *fakeStore) Sync(
 ) (SyncResponse, error) {
 	s.commits = append(s.commits, input)
 	return s.response, s.err
+}
+
+func (s *fakeStore) Week(
+	_ context.Context,
+	playerID string,
+	now time.Time,
+) ([]DailyActivity, error) {
+	s.weekPlayer = playerID
+	s.weekNow = now
+	return s.week, s.weekErr
 }
 
 type fakeCore struct{}
@@ -204,6 +218,46 @@ func TestServiceMapsActivityStoreErrors(t *testing.T) {
 		)
 		assertActivityErrorCode(t, err, test.code)
 	}
+}
+
+func TestServiceReturnsWeeklyActivity(t *testing.T) {
+	now := time.Date(2026, time.July, 24, 8, 30, 0, 0, time.FixedZone("test", 3600))
+	expected := []DailyActivity{{
+		Date:            "2026-07-24",
+		Vitality:        104,
+		VitalityAwarded: 104,
+	}}
+	store := &fakeStore{week: expected}
+	service, err := NewService(ServiceConfig{
+		Store: store,
+		Core:  fakeCore{},
+		Now:   func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	response, err := service.Week(context.Background(), activityPlayerID)
+	if err != nil {
+		t.Fatalf("Week: %v", err)
+	}
+	if !reflect.DeepEqual(response, expected) ||
+		store.weekPlayer != activityPlayerID ||
+		!store.weekNow.Equal(now.UTC()) ||
+		store.weekNow.Location() != time.UTC {
+		t.Fatalf(
+			"response/player/now = %#v/%q/%s",
+			response,
+			store.weekPlayer,
+			store.weekNow,
+		)
+	}
+	store.week = nil
+	response, err = service.Week(context.Background(), activityPlayerID)
+	if err != nil || response == nil || len(response) != 0 {
+		t.Fatalf("empty week = %#v, %v", response, err)
+	}
+	_, err = service.Week(context.Background(), "")
+	assertActivityErrorCode(t, err, "identity_invalid")
 }
 
 func validSyncRequest(now time.Time) SyncRequest {

@@ -727,6 +727,13 @@ reconcile'ятся до нового дневного total, причём фак
 дельта ограничивается нулём pet stat и сохраняется отдельно для корректного
 следующего пересчёта.
 
+`GET /v1/me/activity/week` возвращает только строки текущего JWT player за
+текущий local day и шесть предыдущих calendar days, отсортированные по дате
+возрастания. В projection входят canonical snapshot, computed/awarded vitality,
+stat gains, goals, source metadata и UTC `updatedAt`; fingerprint и внутренний
+`stat_gains_applied` клиенту не раскрываются. Дни без sync не заполняются
+синтетическими нулевыми объектами.
+
 > ⚠️ Поле называлось `deviceSig`, что подразумевало криптографическую подпись.
 > Её не существует: HealthKit и Samsung Health подписанных агрегатов сторонним
 > приложениям не выдают (`ANTICHEAT.md` §5.5). Передаётся строка-источник
