@@ -147,7 +147,9 @@
 - [ ] Heart gate: запись без валидного пульса → REJECTED (`ANTICHEAT.md` §3.0), карта не создаётся.
 - [ ] Карты игровой добычи на телефоне выдаёт **сервер** (детерминированно, не клиент) — тот же server-authority, что и для боя.
 - [ ] Все бои считаются на сервере.
-- [ ] Ledger валют сходится (consistency check green).
+- [ ] Ledger валют сходится (consistency check green). Исполняемый gate
+  `server/cmd/ledger-audit` реализован; чекбокс закрывается только после
+  `exit 0` на staging snapshot.
 
 ### Privacy
 - [ ] Consent flow для Health/Sensors.

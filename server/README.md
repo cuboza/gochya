@@ -41,6 +41,8 @@
   расход предмета и идемпотентный результат;
 - `GET /v1/shop`, `POST /v1/shop/buy` и `GET /v1/me/items` дают стабильный
   Koins-каталог, атомарную покупку и авторитетный item inventory;
+- `cmd/ledger-audit` сверяет currency/item projections с полной ledger-историей
+  и проверяет double-entry в read-only PostgreSQL snapshot;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -267,6 +269,29 @@ Google ADC, Play Integrity Standard и нативный Rust Core. При ста
 `MEETS_DEVICE_INTEGRITY`. Флаги `GOCHYA_PLAY_ALLOW_UNLICENSED` и
 `GOCHYA_PLAY_ALLOW_TEST_RESPONSES` по умолчанию `false` и предназначены только
 для явно изолированного staging.
+
+### Ledger consistency gate
+
+После применения миграций и до rollout API:
+
+```bash
+cd server
+GOCHYA_DATABASE_URL='postgres://user:pass@host/gochya?sslmode=require' \
+  go run ./cmd/ledger-audit
+```
+
+Команда использует один read-only `REPEATABLE READ` snapshot и печатает JSON.
+Она проверяет:
+
+- каждую currency/item ledger-запись на нулевую сумму двух сторон;
+- Koins wallet против суммы всей Koins-истории игрока;
+- `vitality_daily` против Vitality ledger с `ref_id = vitality_date`;
+- каждый item quantity против суммы его item ledger.
+
+Исторические дни Vitality не смешиваются с текущей дневной проекцией. Аудит
+ничего не исправляет. Exit code `0` означает согласованное состояние, `2` —
+найденные расхождения, `1` — ошибку запуска или PostgreSQL. Cron и deployment
+job должны считать любой ненулевой код ошибкой.
 
 Сборка после Rust Core:
 

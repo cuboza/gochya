@@ -54,6 +54,9 @@ Offline care пересчитывает потребности, Sleep и Weaknes
 идемпотентный command reconcile атомарно расходует предметы. Новый
 server-authoritative Koins-shop публикует согласованные care/breeding SKU,
 проводит покупку через currency/item ledgers и возвращает приватный inventory.
+Read-only `server/cmd/ledger-audit` даёт cron/deployment gate: в одном
+PostgreSQL snapshot сверяет Koins, дневную Vitality и item projections с
+ledger, а также проверяет нулевую сумму обеих сторон каждой записи.
 `server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 Полная текущая цепочка PostgreSQL migrations теперь стартует из пустой schema,

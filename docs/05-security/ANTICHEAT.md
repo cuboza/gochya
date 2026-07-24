@@ -301,8 +301,29 @@ transactions:
 авторитетному `matches.created_at`; задержка confirm не переносит cap.
 
 ### 6.2. Баланс всегда сходится
-- `sum(transactions for player, currency) == wallet[currency]`.
-- Periodic consistency check (cron-job).
+- Для Koins:
+  `sum(transactions.amount for player where currency = 'koins') == player_wallet.koins`.
+- Для дневной Vitality сравнивается только текущий scope кошелька:
+  `sum(transactions.amount where currency = 'vitality' and ref_id = vitality_date) == vitality_daily`.
+  Ledger прошлых дат остаётся историей и не входит в текущий дневной баланс.
+- Для предметов:
+  `sum(item_transactions.amount for player, item) == player_items.quantity`.
+- Каждая строка обоих ledger отдельно обязана удовлетворять
+  `amount + counterparty_amount = 0`.
+
+Periodic consistency check реализован read-only командой
+`server/cmd/ledger-audit`. Она читает все проверяемые таблицы в одном
+`REPEATABLE READ` snapshot, выводит JSON с каждым расхождением и ничего не
+исправляет автоматически:
+
+```bash
+cd server
+GOCHYA_DATABASE_URL='postgres://…' go run ./cmd/ledger-audit
+```
+
+Exit code `0` закрывает cron/deployment gate, `2` означает найденное нарушение,
+`1` — ошибку конфигурации, соединения или выполнения аудита. Любой ненулевой
+код должен поднять alert и остановить rollout, который использует этот gate.
 
 ### 6.3. Anomaly detection
 - Резкий рост валюты без IAP → флаг.

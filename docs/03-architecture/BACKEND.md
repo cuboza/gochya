@@ -391,6 +391,14 @@ CREATE TABLE anticheat_events (
 );
 ```
 
+Ledger-инвариант исполняет `server/cmd/ledger-audit` в read-only
+`REPEATABLE READ`-транзакции. Проверка сравнивает полную историю Koins с
+`player_wallet.koins`, текущий `vitality_date` с `vitality_daily`, суммы
+`item_transactions` с `player_items.quantity` и отдельно валидирует обе стороны
+каждой ledger-записи. JSON-отчёт детерминированно сортирует находки; exit code
+`0/2/1` означает соответственно healthy/inconsistent/runtime failure. Команда
+предназначена для cron и pre-deploy gate и никогда не ремонтирует данные.
+
 ### 4.1. Версионирование JSONB и миграции
 
 - Каждый объект Shared Core хранится в envelope `{schema_version, data}`.
