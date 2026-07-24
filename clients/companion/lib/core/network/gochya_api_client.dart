@@ -137,17 +137,20 @@ class GochyaApiClient {
         value.scheme == 'http' &&
         (value.host == 'localhost' ||
             value.host == '127.0.0.1' ||
-            value.host == '::1');
+            value.host == '::1' ||
+            value.host == '10.0.2.2' ||
+            value.host == '10.0.3.2');
     if ((!value.hasScheme ||
             !value.hasAuthority ||
             (value.scheme != 'https' && !isLoopbackHttp)) ||
+        (value.path.isNotEmpty && value.path != '/') ||
         value.hasQuery ||
         value.hasFragment ||
         value.userInfo.isNotEmpty) {
       throw ArgumentError.value(
         value,
         'baseUri',
-        'must be HTTPS (or loopback HTTP) without query or fragment',
+        'must be an HTTPS origin (or loopback HTTP origin)',
       );
     }
     return value;

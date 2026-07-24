@@ -47,11 +47,14 @@ class ApiProfileRepository implements ProfileRepository {
 
   @override
   Future<HomeSnapshot> loadHome(String accessToken) async {
-    final profileFuture = _api.getProfile(accessToken);
-    final petsFuture = _api.getPets(accessToken);
-    final profile = await profileFuture;
-    final pets = await petsFuture;
-    return HomeSnapshot(profile: profile, pets: pets);
+    final results = await Future.wait<Object>([
+      _api.getProfile(accessToken),
+      _api.getPets(accessToken),
+    ]);
+    return HomeSnapshot(
+      profile: results[0] as PlayerProfile,
+      pets: results[1] as List<PetSummary>,
+    );
   }
 
   @override

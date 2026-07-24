@@ -26,9 +26,12 @@ class SecureSessionStore implements SessionStore {
 
   @override
   Future<SessionTokens?> read() async {
-    final values = await _storage.readAll();
-    final accessToken = values[_accessTokenKey];
-    final refreshToken = values[_refreshTokenKey];
+    final values = await Future.wait([
+      _storage.read(key: _accessTokenKey),
+      _storage.read(key: _refreshTokenKey),
+    ]);
+    final accessToken = values[0];
+    final refreshToken = values[1];
     if (accessToken == null || refreshToken == null) {
       if (accessToken != null || refreshToken != null) {
         await clear();
@@ -58,5 +61,10 @@ class SecureSessionStore implements SessionStore {
   }
 
   @override
-  Future<void> clear() => _storage.deleteAll();
+  Future<void> clear() async {
+    await Future.wait([
+      _storage.delete(key: _accessTokenKey),
+      _storage.delete(key: _refreshTokenKey),
+    ]);
+  }
 }

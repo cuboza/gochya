@@ -138,7 +138,17 @@ void main() {
         throwsArgumentError,
       );
       expect(
+        () => GochyaApiClient(
+          baseUri: Uri.parse('https://api.example.test/prefix'),
+        ),
+        throwsArgumentError,
+      );
+      expect(
         () => GochyaApiClient(baseUri: Uri.parse('http://127.0.0.1:8080')),
+        returnsNormally,
+      );
+      expect(
+        () => GochyaApiClient(baseUri: Uri.parse('http://10.0.2.2:8080')),
         returnsNormally,
       );
     });

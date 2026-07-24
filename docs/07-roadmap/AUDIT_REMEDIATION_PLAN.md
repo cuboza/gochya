@@ -54,6 +54,8 @@
 - [ ] Выполнить Gate 4: старт и валидация датасета классификатора (`SPRINT0_GATES.md`).
 - [ ] Собрать end-to-end путь: Wear OS → API → Rust Core → PostgreSQL → Flutter.
 - [ ] Настроить CI для Rust, Go, Flutter, Wear OS, ABI и документации.
+  Rust/Go/Core и Flutter analyzer/tests/Android/iOS build уже автоматизированы;
+  отдельные Wear OS и полный documentation gate ещё не закрыты.
 
 **Gate:** вертикальный Dojo-сценарий работает на реальном устройстве, а ключевые performance и security assumptions подтверждены измерениями.
 

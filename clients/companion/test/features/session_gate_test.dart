@@ -32,6 +32,28 @@ void main() {
     expect(find.text('Токены не вводятся вручную'), findsOneWidget);
   });
 
+  testWidgets('fails closed when secure storage is unavailable', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(const _FailingSessionStore()),
+        ],
+        child: const GochyaApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Не удалось открыть сессию'), findsOneWidget);
+    expect(
+      find.text(
+        'GOCHYA не продолжит без безопасного доступа к хранилищу токенов.',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('renders profile, active pet, needs, and lineage', (
     tester,
   ) async {
@@ -113,6 +135,19 @@ class _MemorySessionStore implements SessionStore {
   Future<void> write(SessionTokens tokens) async {
     this.tokens = tokens;
   }
+}
+
+class _FailingSessionStore implements SessionStore {
+  const _FailingSessionStore();
+
+  @override
+  Future<void> clear() => throw UnimplementedError();
+
+  @override
+  Future<SessionTokens?> read() => throw StateError('storage unavailable');
+
+  @override
+  Future<void> write(SessionTokens tokens) => throw UnimplementedError();
 }
 
 class _FakeRepository implements ProfileRepository {

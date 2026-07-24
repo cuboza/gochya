@@ -33,11 +33,11 @@
 
 | Компонент | Технология |
 |---|---|
-| Фреймворк | Flutter 3.16+ (stable) |
-| Язык | Dart 3+ |
-| State management | Riverpod (рекомендуется) или Bloc |
-| Routing | go_router |
-| Сеть | dio + retrofit |
+| Фреймворк | Flutter 3.44.8 stable |
+| Язык | Dart 3.12+ |
+| State management | Riverpod |
+| Routing | `Navigator` в первом срезе; `go_router` при появлении deep links |
+| Сеть | типизированный boundary на `package:http`; без формул на клиенте |
 | Realtime | web_socket_channel |
 | Локальная БД | Drift (SQLite) или Isar |
 | Health (iOS) | healthKit через `health` package |
@@ -45,6 +45,15 @@
 | IAP (iOS) | StoreKit 2 via `in_app_purchase` |
 | IAP (Android) | Google Play Billing + Galaxy Store IAP |
 | Core-интеграция | FFI (`dart:ffi`) к Shared Core |
+
+Текущий исполняемый срез в `clients/companion` уже содержит Android/iOS runners,
+Material app shell, Keychain/Keystore session store и read-only
+`profile → pets → lineage` flow. JSON декодируется в строгие доменные модели:
+невозможные needs, mutation mask за пределами 14 бит и повреждённые пары родителей
+не маскируются в UI, а переходят в безопасное состояние ошибки. Production API
+допускается только по HTTPS; HTTP оставлен только для loopback-разработки.
+Provider OAuth UI, refresh orchestration, care-команды и Shared Core FFI остаются
+следующими срезами.
 
 ---
 

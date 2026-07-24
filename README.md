@@ -62,6 +62,11 @@ ledger, а также проверяет нулевую сумму обеих с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 Полная текущая цепочка PostgreSQL migrations теперь стартует из пустой schema,
 без ручного создания базовых таблиц.
+В [`clients/companion/`](./clients/companion/) создан исполняемый Flutter-клиент
+Android/iOS: защищённая локальная сессия, Material app shell, типизированные
+profile/pets/lineage contracts, главная активного питомца и bounded lineage UI.
+Его CI проверяет форматирование, analyzer, widget/API tests и нативные Android/iOS
+сборки.
 Реальный Wear OS device gate и watchOS App Attest gate ещё не выполнялись.
 
 Локальная проверка:
@@ -69,6 +74,9 @@ PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 ```bash
 bash tools/check-core.sh
 bash tools/check-server.sh
+cd clients/companion
+flutter analyze
+flutter test
 ```
 
 ---
