@@ -289,8 +289,16 @@ anomaly_check:
 
 ```
 transactions:
-    tx_id | player_id | currency | amount | reason | ref_id | timestamp
+    tx_id | player_id | currency | amount
+          | counterparty | counterparty_amount
+          | reason | ref_id | idempotency_key | timestamp
 ```
+
+`amount + counterparty_amount` всегда равно нулю. Для casual PvP ключ
+`match_confirm:<match_id>` уникален в пределах игрока, обе стороны матча
+подтверждаются раздельно, а wallet projection и ledger фиксируются в одной
+транзакции. Эмиссия ограничена первыми 10 матчами игрока за UTC-день по
+авторитетному `matches.created_at`; задержка confirm не переносит cap.
 
 ### 6.2. Баланс всегда сходится
 - `sum(transactions for player, currency) == wallet[currency]`.

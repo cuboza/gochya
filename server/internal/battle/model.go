@@ -51,6 +51,18 @@ type MatchSummary struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
+type Reward struct {
+	Currency string `json:"currency"`
+	Amount   uint32 `json:"amount"`
+}
+
+type ConfirmResponse struct {
+	MatchID     string    `json:"matchId"`
+	Outcome     string    `json:"outcome"`
+	Rewards     []Reward  `json:"rewards"`
+	ConfirmedAt time.Time `json:"confirmedAt"`
+}
+
 type QueueCommit struct {
 	PlayerID       string
 	IdempotencyKey string
@@ -58,6 +70,12 @@ type QueueCommit struct {
 	MatchID        string
 	Seed           uint64
 	Now            time.Time
+}
+
+type ConfirmCommit struct {
+	PlayerID string
+	MatchID  string
+	Now      time.Time
 }
 
 type Simulator = corebridge.CombatEngine

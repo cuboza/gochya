@@ -22,6 +22,11 @@ func TestServiceQueuesAndReadsMatch(t *testing.T) {
 			Outcome:    "win",
 			CreatedAt:  time.Unix(1, 0).UTC(),
 		}},
+		confirmation: ConfirmResponse{
+			MatchID: "22222222-2222-4222-8222-222222222222",
+			Outcome: "win",
+			Rewards: []Reward{{Currency: "koins", Amount: casualWinKoins}},
+		},
 	}
 	service, err := NewService(ServiceConfig{
 		Store:  store,
@@ -48,6 +53,11 @@ func TestServiceQueuesAndReadsMatch(t *testing.T) {
 	if err != nil || len(history) != 1 || store.historyLimit != defaultHistoryLimit {
 		t.Fatalf("History = %#v, %v, limit = %d", history, err, store.historyLimit)
 	}
+	confirmation, err := service.Confirm(context.Background(), battlePlayer, response.MatchID)
+	if err != nil || confirmation.MatchID != response.MatchID ||
+		store.confirmCommit.PlayerID != battlePlayer {
+		t.Fatalf("Confirm = %#v, %v, commit = %#v", confirmation, err, store.confirmCommit)
+	}
 }
 
 func TestServiceRejectsInvalidQueue(t *testing.T) {
@@ -63,6 +73,15 @@ func TestServiceRejectsInvalidQueue(t *testing.T) {
 		if !errors.As(err, &apiErr) || apiErr.Code != test.code {
 			t.Fatalf("error = %v, want %s", err, test.code)
 		}
+	}
+}
+
+func TestServiceRejectsInvalidConfirm(t *testing.T) {
+	service, _ := NewService(ServiceConfig{Store: &fakeStore{}, Core: fakeCore{}})
+	_, err := service.Confirm(context.Background(), battlePlayer, "bad")
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "match_id_invalid" {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -85,12 +104,46 @@ func TestServiceValidatesHistoryLimit(t *testing.T) {
 	}
 }
 
+func TestCasualRewardUsesParticipantPerspective(t *testing.T) {
+	tests := []struct {
+		winner    string
+		playerIsA bool
+		outcome   string
+		reward    int
+	}{
+		{"a", true, "win", casualWinKoins},
+		{"a", false, "loss", casualLossKoins},
+		{"b", true, "loss", casualLossKoins},
+		{"b", false, "win", casualWinKoins},
+		{"draw", true, "draw", casualDrawKoins},
+		{"draw", false, "draw", casualDrawKoins},
+	}
+	for _, test := range tests {
+		outcome, reward, err := casualReward(test.winner, test.playerIsA)
+		if err != nil || outcome != test.outcome || reward != test.reward {
+			t.Fatalf(
+				"casualReward(%q, %t) = %q, %d, %v",
+				test.winner,
+				test.playerIsA,
+				outcome,
+				reward,
+				err,
+			)
+		}
+	}
+	if _, _, err := casualReward("client-wins", true); err == nil {
+		t.Fatal("invalid winner was accepted")
+	}
+}
+
 type fakeStore struct {
-	queue        QueueResponse
-	match        MatchResponse
-	history      []MatchSummary
-	commit       QueueCommit
-	historyLimit int
+	queue         QueueResponse
+	match         MatchResponse
+	history       []MatchSummary
+	confirmation  ConfirmResponse
+	commit        QueueCommit
+	confirmCommit ConfirmCommit
+	historyLimit  int
 }
 
 func (s *fakeStore) QueueCasual(
@@ -107,6 +160,13 @@ func (s *fakeStore) Match(context.Context, string, string) (MatchResponse, error
 func (s *fakeStore) History(_ context.Context, _ string, limit int) ([]MatchSummary, error) {
 	s.historyLimit = limit
 	return s.history, nil
+}
+func (s *fakeStore) Confirm(
+	_ context.Context,
+	input ConfirmCommit,
+) (ConfirmResponse, error) {
+	s.confirmCommit = input
+	return s.confirmation, nil
 }
 
 type fakeCore struct{}

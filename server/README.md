@@ -20,7 +20,8 @@
   `MatchV1 → MatchResultV1` snapshot с максимумом 20 раундов;
 - `POST /v1/matchmaking/queue` создаёт idempotent casual match по двум
   серверным loadout, `GET /v1/match/:id` отдаёт сохранённый replay участнику,
-  а `GET /v1/me/matches/history` — его последние результаты;
+  `GET /v1/me/matches/history` — его последние результаты, а
+  `POST /v1/match/:id/confirm` один раз начисляет авторитетную награду;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -68,7 +69,12 @@ pet/card stats, seed и opponent выбирает сервер. PostgreSQL-тр�
 Core второй раз. Читать результат могут только оба участника. История также
 ограничена участником, сортируется по `created_at DESC, id DESC`, принимает
 `limit` от 1 до 100 (по умолчанию 20) и возвращает исход матча относительно
-текущего игрока: `win`, `loss` или `draw`.
+текущего игрока: `win`, `loss` или `draw`. Confirm не принимает outcome или
+сумму от клиента: 30/20/10 Koins вычисляются из сохранённого результата.
+Награждаются первые 10 матчей игрока за UTC-день; повторные и конкурентные
+confirm возвращают одну запись из `match_confirmations`. Миграция `000009`
+фиксирует награду, двухстороннюю ledger-запись и wallet projection в одной
+транзакции.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и
@@ -207,6 +213,7 @@ GET  /v1/me/pets/:id
 POST /v1/me/pets/:id/activate
 POST /v1/matchmaking/queue
 GET  /v1/match/:id
+POST /v1/match/:id/confirm
 GET  /v1/me/matches/history?limit=
 GET  /v1/me/techniques?limit=&cursor=
 POST /v1/me/techniques/equip

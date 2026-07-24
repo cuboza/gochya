@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -76,6 +78,59 @@ func TestPostgresCasualMatchIsAtomicAndIdempotent(t *testing.T) {
 		t.Fatalf("conflict error = %v", err)
 	}
 
+	confirm := ConfirmCommit{
+		PlayerID: battlePlayer,
+		MatchID:  commit.MatchID,
+		Now:      commit.Now.Add(30 * time.Second),
+	}
+	confirmations := make([]ConfirmResponse, concurrency)
+	confirmErrors := make([]error, concurrency)
+	for index := range confirmations {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			confirmations[index], confirmErrors[index] = store.Confirm(ctx, confirm)
+		}()
+	}
+	group.Wait()
+	for index := range confirmations {
+		if confirmErrors[index] != nil ||
+			!reflect.DeepEqual(confirmations[index], confirmations[0]) {
+			t.Fatalf(
+				"confirmation %d = %#v, %v",
+				index,
+				confirmations[index],
+				confirmErrors[index],
+			)
+		}
+	}
+	if confirmations[0].Outcome != "win" ||
+		len(confirmations[0].Rewards) != 1 ||
+		confirmations[0].Rewards[0] != (Reward{Currency: "koins", Amount: casualWinKoins}) {
+		t.Fatalf("winner confirmation = %#v", confirmations[0])
+	}
+	assertRewardLedger(t, ctx, pool, battlePlayer, casualWinKoins, 1)
+
+	loserConfirmation, err := store.Confirm(ctx, ConfirmCommit{
+		PlayerID: opponentID,
+		MatchID:  commit.MatchID,
+		Now:      confirm.Now,
+	})
+	if err != nil ||
+		loserConfirmation.Outcome != "loss" ||
+		len(loserConfirmation.Rewards) != 1 ||
+		loserConfirmation.Rewards[0].Amount != casualLossKoins {
+		t.Fatalf("loser confirmation = %#v, %v", loserConfirmation, err)
+	}
+	assertRewardLedger(t, ctx, pool, opponentID, casualLossKoins, 1)
+	if _, err := store.Confirm(ctx, ConfirmCommit{
+		PlayerID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+		MatchID:  commit.MatchID,
+		Now:      confirm.Now,
+	}); err != ErrMatchNotFound {
+		t.Fatalf("outsider confirm error = %v", err)
+	}
+
 	second := QueueCommit{
 		PlayerID:       opponentID,
 		IdempotencyKey: "99999999-9999-4999-8999-999999999999",
@@ -116,6 +171,83 @@ func TestPostgresCasualMatchIsAtomicAndIdempotent(t *testing.T) {
 	)
 	if err != nil || len(outsider) != 0 {
 		t.Fatalf("outsider history = %#v, %v", outsider, err)
+	}
+
+	var cappedMatchID string
+	for index := 3; index <= casualRewardedMatchesPerDay+1; index++ {
+		cappedMatchID = fmt.Sprintf(
+			"90000000-0000-4000-8000-%012d",
+			index,
+		)
+		_, err := store.QueueCasual(ctx, QueueCommit{
+			PlayerID:       battlePlayer,
+			IdempotencyKey: fmt.Sprintf("91000000-0000-4000-8000-%012d", index),
+			RequestHash:    [32]byte{byte(index)},
+			MatchID:        cappedMatchID,
+			Seed:           uint64(40 + index),
+			Now:            commit.Now.Add(time.Duration(index) * time.Minute),
+		}, core)
+		if err != nil {
+			t.Fatalf("queue capped match %d: %v", index, err)
+		}
+	}
+	capped, err := store.Confirm(ctx, ConfirmCommit{
+		PlayerID: battlePlayer,
+		MatchID:  cappedMatchID,
+		Now:      commit.Now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("confirm capped match: %v", err)
+	}
+	if capped.Outcome != "win" || len(capped.Rewards) != 0 {
+		t.Fatalf("capped confirmation = %#v", capped)
+	}
+	cappedRetry, err := store.Confirm(ctx, ConfirmCommit{
+		PlayerID: battlePlayer,
+		MatchID:  cappedMatchID,
+		Now:      commit.Now.Add(2 * time.Hour),
+	})
+	if err != nil || !reflect.DeepEqual(cappedRetry, capped) {
+		t.Fatalf("capped retry = %#v, %v", cappedRetry, err)
+	}
+	assertRewardLedger(t, ctx, pool, battlePlayer, casualWinKoins, 1)
+}
+
+func assertRewardLedger(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	playerID string,
+	wantBalance int,
+	wantTransactions int,
+) {
+	t.Helper()
+	var balance, playerSum, counterpartySum int64
+	var transactions int
+	if err := pool.QueryRow(ctx, `SELECT koins FROM player_wallet WHERE player_id=$1`,
+		playerID).Scan(&balance); err != nil {
+		t.Fatalf("query wallet: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*),COALESCE(SUM(amount),0),
+		COALESCE(SUM(counterparty_amount),0)
+		FROM transactions WHERE player_id=$1 AND currency='koins'`,
+		playerID).Scan(&transactions, &playerSum, &counterpartySum); err != nil {
+		t.Fatalf("query reward ledger: %v", err)
+	}
+	if transactions != wantTransactions ||
+		balance != int64(wantBalance) ||
+		playerSum != int64(wantBalance) ||
+		counterpartySum != -int64(wantBalance) ||
+		playerSum+counterpartySum != 0 {
+		t.Fatalf(
+			"wallet/ledger = %d/%d/%d with %d tx, want balance %d with %d tx",
+			balance,
+			playerSum,
+			counterpartySum,
+			transactions,
+			wantBalance,
+			wantTransactions,
+		)
 	}
 }
 
@@ -161,7 +293,8 @@ func battlePool(t *testing.T, ctx context.Context, url string) *pgxpool.Pool {
 	})
 	for _, path := range []string{"../../migrations/000000_base.up.sql",
 		"../../migrations/000006_loadouts.up.sql", "../../migrations/000007_profile_pets_read.up.sql",
-		"../../migrations/000008_casual_matches.up.sql"} {
+		"../../migrations/000008_casual_matches.up.sql",
+		"../../migrations/000009_match_rewards.up.sql"} {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)

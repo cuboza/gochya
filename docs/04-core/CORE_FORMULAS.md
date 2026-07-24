@@ -476,6 +476,23 @@ HYBRID_CATALYST_PRICE  = 100       // Gems (audit B7)
 INCUBATE_SKIP_PRICE    = 50        // Gems
 ```
 
+### 6.3a. Награды casual PvP
+```
+CASUAL_WIN_KOINS                = 30
+CASUAL_DRAW_KOINS               = 20
+CASUAL_LOSS_KOINS               = 10
+CASUAL_REWARDED_MATCHES_PER_DAY = 10
+```
+
+- Награда определяется только сохранённым серверным `MatchResult`; клиент не
+  передаёт outcome или сумму.
+- Cap считается отдельно для каждого игрока по первым 10 casual-матчам
+  server-day UTC в порядке `(created_at ASC, id ASC)`, независимо от порядка
+  вызовов `confirm`. Более поздние матчи остаются доступны, но дают `0 Koins`.
+- Каждый участник подтверждает матч отдельно. Повторный или конкурентный
+  `confirm` возвращает исходный результат ledger и не начисляет валюту снова.
+- Casual не выдаёт Vitality: эта валюта начисляется только из activity sync.
+
 ### 6.3b. Шанс гибрида (обновлено audit B7)
 ```
 hybridChance(differentElement, hybridCatalyst):

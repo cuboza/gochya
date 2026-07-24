@@ -25,6 +25,9 @@ var requiredDatabaseTables = []string{
 	"loadout_idempotency",
 	"matches",
 	"match_idempotency",
+	"player_wallet",
+	"transactions",
+	"match_confirmations",
 }
 
 func validateDatabaseSchema(ctx context.Context, pool *pgxpool.Pool) error {

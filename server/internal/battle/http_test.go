@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,124 @@ func TestHTTPMatchHistory(t *testing.T) {
 	if recorder.Header().Get("Cache-Control") != "private, no-store" ||
 		recorder.Header().Get("X-Request-ID") == "" {
 		t.Fatalf("headers = %#v", recorder.Header())
+	}
+}
+
+func TestHTTPConfirmsMatch(t *testing.T) {
+	confirmedAt := time.Unix(2, 0).UTC()
+	store := &fakeStore{confirmation: ConfirmResponse{
+		MatchID:     "22222222-2222-4222-8222-222222222222",
+		Outcome:     "win",
+		Rewards:     []Reward{{Currency: "koins", Amount: casualWinKoins}},
+		ConfirmedAt: confirmedAt,
+	}}
+	routes := battleRoutes(t, store)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/match/22222222-2222-4222-8222-222222222222/confirm",
+		nil,
+	)
+	request.Header.Set("X-Player-ID", battlePlayer)
+	recorder := httptest.NewRecorder()
+
+	routes.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+	}
+	var response ConfirmResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.MatchID != store.confirmation.MatchID ||
+		response.Outcome != "win" ||
+		len(response.Rewards) != 1 ||
+		response.Rewards[0].Amount != casualWinKoins ||
+		store.confirmCommit.PlayerID != battlePlayer {
+		t.Fatalf("response = %#v, commit = %#v", response, store.confirmCommit)
+	}
+}
+
+func TestHTTPConfirmBoundaries(t *testing.T) {
+	routes := battleRoutes(t, &fakeStore{})
+	matchPath := "/v1/match/22222222-2222-4222-8222-222222222222/confirm"
+	tests := []struct {
+		name       string
+		method     string
+		target     string
+		body       string
+		auth       bool
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "authentication required",
+			method:     http.MethodPost,
+			target:     matchPath,
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "unauthenticated",
+		},
+		{
+			name:       "method rejected",
+			method:     http.MethodGet,
+			target:     matchPath,
+			auth:       true,
+			wantStatus: http.StatusMethodNotAllowed,
+			wantCode:   "method_not_allowed",
+		},
+		{
+			name:       "body rejected",
+			method:     http.MethodPost,
+			target:     matchPath,
+			body:       "{}",
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_body",
+		},
+		{
+			name:       "query rejected",
+			method:     http.MethodPost,
+			target:     matchPath + "?reward=1000",
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_query",
+		},
+		{
+			name:       "unknown subroute rejected",
+			method:     http.MethodPost,
+			target:     "/v1/match/22222222-2222-4222-8222-222222222222/reward",
+			auth:       true,
+			wantStatus: http.StatusNotFound,
+			wantCode:   "route_not_found",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(
+				test.method,
+				test.target,
+				strings.NewReader(test.body),
+			)
+			if test.auth {
+				request.Header.Set("X-Player-ID", battlePlayer)
+			}
+			recorder := httptest.NewRecorder()
+			routes.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+			}
+			var response struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			if response.Error.Code != test.wantCode {
+				t.Fatalf("code = %q, want %q", response.Error.Code, test.wantCode)
+			}
+		})
 	}
 }
 

@@ -17,8 +17,12 @@ import (
 )
 
 const (
-	matchmakingAdvisoryLock int64 = 0x474f43485941
-	matchIdempotencyTTL           = 24 * time.Hour
+	matchmakingAdvisoryLock     int64 = 0x474f43485941
+	matchIdempotencyTTL               = 24 * time.Hour
+	casualWinKoins                    = 30
+	casualDrawKoins                   = 20
+	casualLossKoins                   = 10
+	casualRewardedMatchesPerDay       = 10
 )
 
 type PostgresStore struct{ pool *pgxpool.Pool }
@@ -228,6 +232,210 @@ func (s *PostgresStore) History(
 		return nil, fmt.Errorf("iterate match history: %w", err)
 	}
 	return history, nil
+}
+
+func (s *PostgresStore) Confirm(
+	ctx context.Context,
+	input ConfirmCommit,
+) (ConfirmResponse, error) {
+	now := input.Now.UTC().Truncate(time.Microsecond)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ConfirmResponse{}, fmt.Errorf("begin match confirmation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(
+		ctx,
+		`SELECT pg_advisory_xact_lock($1)`,
+		matchmakingAdvisoryLock,
+	); err != nil {
+		return ConfirmResponse{}, fmt.Errorf("lock casual reward ordering: %w", err)
+	}
+
+	var playerAID, playerBID string
+	var resultJSON []byte
+	var matchCreatedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT player_a::text,player_b::text,result,created_at
+		FROM matches WHERE id=$2 AND (player_a=$1 OR player_b=$1) FOR UPDATE`,
+		input.PlayerID, input.MatchID).Scan(
+		&playerAID,
+		&playerBID,
+		&resultJSON,
+		&matchCreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ConfirmResponse{}, ErrMatchNotFound
+	}
+	if err != nil {
+		return ConfirmResponse{}, fmt.Errorf("lock match confirmation: %w", err)
+	}
+
+	response, found, err := existingConfirmation(ctx, tx, input)
+	if err != nil {
+		return ConfirmResponse{}, err
+	}
+	if found {
+		if err := tx.Commit(ctx); err != nil {
+			return ConfirmResponse{}, fmt.Errorf("commit match confirmation retry: %w", err)
+		}
+		return response, nil
+	}
+
+	var result Result
+	if err := json.Unmarshal(resultJSON, &result); err != nil {
+		return ConfirmResponse{}, fmt.Errorf("decode confirmation result: %w", err)
+	}
+	outcome, baseReward, err := casualReward(result.Winner, input.PlayerID == playerAID)
+	if err != nil {
+		return ConfirmResponse{}, err
+	}
+	dayStart := time.Date(
+		matchCreatedAt.UTC().Year(),
+		matchCreatedAt.UTC().Month(),
+		matchCreatedAt.UTC().Day(),
+		0,
+		0,
+		0,
+		0,
+		time.UTC,
+	)
+	var matchRank int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*)
+		FROM matches
+		WHERE mode='casual'
+		  AND (player_a=$1 OR player_b=$1)
+		  AND created_at >= $2
+		  AND created_at < $3
+		  AND (created_at < $4 OR (created_at = $4 AND id <= $5))`,
+		input.PlayerID,
+		dayStart,
+		dayStart.Add(24*time.Hour),
+		matchCreatedAt,
+		input.MatchID,
+	).Scan(&matchRank); err != nil {
+		return ConfirmResponse{}, fmt.Errorf("rank rewarded casual match: %w", err)
+	}
+	reward := baseReward
+	if matchRank > casualRewardedMatchesPerDay {
+		reward = 0
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO match_confirmations(
+		match_id,player_id,outcome,koins_awarded,confirmed_at)
+		VALUES($1,$2,$3,$4,$5)`,
+		input.MatchID,
+		input.PlayerID,
+		outcome,
+		reward,
+		now,
+	); err != nil {
+		return ConfirmResponse{}, fmt.Errorf("insert match confirmation: %w", err)
+	}
+	response = ConfirmResponse{
+		MatchID:     input.MatchID,
+		Outcome:     outcome,
+		Rewards:     make([]Reward, 0, 1),
+		ConfirmedAt: now,
+	}
+	if reward > 0 {
+		response.Rewards = append(response.Rewards, Reward{
+			Currency: "koins",
+			Amount:   uint32(reward),
+		})
+		if err := applyCasualReward(
+			ctx,
+			tx,
+			input.PlayerID,
+			input.MatchID,
+			reward,
+			now,
+		); err != nil {
+			return ConfirmResponse{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ConfirmResponse{}, fmt.Errorf("commit match confirmation: %w", err)
+	}
+	return response, nil
+}
+
+func existingConfirmation(
+	ctx context.Context,
+	tx pgx.Tx,
+	input ConfirmCommit,
+) (ConfirmResponse, bool, error) {
+	var outcome string
+	var reward uint32
+	var confirmedAt time.Time
+	err := tx.QueryRow(ctx, `SELECT outcome,koins_awarded,confirmed_at
+		FROM match_confirmations WHERE match_id=$1 AND player_id=$2`,
+		input.MatchID, input.PlayerID).Scan(&outcome, &reward, &confirmedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ConfirmResponse{}, false, nil
+	}
+	if err != nil {
+		return ConfirmResponse{}, false, fmt.Errorf("query match confirmation: %w", err)
+	}
+	response := ConfirmResponse{
+		MatchID:     input.MatchID,
+		Outcome:     outcome,
+		Rewards:     make([]Reward, 0, 1),
+		ConfirmedAt: confirmedAt.UTC(),
+	}
+	if reward > 0 {
+		response.Rewards = append(response.Rewards, Reward{
+			Currency: "koins",
+			Amount:   reward,
+		})
+	}
+	return response, true, nil
+}
+
+func casualReward(winner string, playerIsA bool) (string, int, error) {
+	switch winner {
+	case "draw":
+		return "draw", casualDrawKoins, nil
+	case "a":
+		if playerIsA {
+			return "win", casualWinKoins, nil
+		}
+		return "loss", casualLossKoins, nil
+	case "b":
+		if playerIsA {
+			return "loss", casualLossKoins, nil
+		}
+		return "win", casualWinKoins, nil
+	default:
+		return "", 0, errors.New("match confirmation contains an invalid winner")
+	}
+}
+
+func applyCasualReward(
+	ctx context.Context,
+	tx pgx.Tx,
+	playerID string,
+	matchID string,
+	reward int,
+	now time.Time,
+) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO transactions(
+		player_id,currency,amount,counterparty,counterparty_amount,
+		reason,ref_id,idempotency_key,created_at)
+		VALUES($1,'koins',$3::BIGINT,'system:casual_rewards',-($3::BIGINT),
+		'casual_match_reward',$2,'match_confirm:' || $2,$4)`,
+		playerID, matchID, reward, now); err != nil {
+		return fmt.Errorf("insert casual reward ledger entry: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO player_wallet(
+		player_id,koins,vitality_daily,vitality_date,updated_at)
+		VALUES($1,$2,0,$3,$4)
+		ON CONFLICT(player_id) DO UPDATE
+		SET koins=player_wallet.koins + EXCLUDED.koins,
+		    updated_at=EXCLUDED.updated_at`,
+		playerID, reward, now.Format(time.DateOnly), now); err != nil {
+		return fmt.Errorf("update casual reward wallet: %w", err)
+	}
+	return nil
 }
 
 type snapshot struct {

@@ -166,6 +166,33 @@ func (s *Service) History(
 	return response, nil
 }
 
+func (s *Service) Confirm(
+	ctx context.Context,
+	playerID string,
+	matchID string,
+) (ConfirmResponse, error) {
+	if strings.TrimSpace(playerID) == "" {
+		return ConfirmResponse{}, apiError(
+			"identity_invalid",
+			"authenticated player is required",
+			http.StatusBadRequest,
+		)
+	}
+	if !validUUID(matchID) {
+		return ConfirmResponse{}, apiError(
+			"match_id_invalid",
+			"match ID must be a UUID",
+			http.StatusBadRequest,
+		)
+	}
+	response, err := s.store.Confirm(ctx, ConfirmCommit{
+		PlayerID: playerID,
+		MatchID:  matchID,
+		Now:      s.now().UTC(),
+	})
+	return response, mapStoreError(err)
+}
+
 func mapStoreError(err error) error {
 	switch {
 	case err == nil:

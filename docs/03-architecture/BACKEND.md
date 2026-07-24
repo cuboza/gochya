@@ -180,10 +180,9 @@ CREATE TABLE inventory_items (
 CREATE TABLE player_wallet (
     player_id       UUID PRIMARY KEY REFERENCES players(id),
     koins           BIGINT NOT NULL DEFAULT 0,
-    gems            BIGINT NOT NULL DEFAULT 0,
     vitality_daily  INT NOT NULL DEFAULT 0,
-    crowns          INT NOT NULL DEFAULT 0,
-    vitality_date   DATE NOT NULL
+    vitality_date   DATE NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL
 );
 
 -- Double-entry ledger — ИСТОЧНИК ИСТИНЫ для всех валют.
@@ -192,8 +191,10 @@ CREATE TABLE player_wallet (
 CREATE TABLE transactions (
     id              BIGSERIAL PRIMARY KEY,
     player_id       UUID NOT NULL REFERENCES players(id),
-    currency        TEXT NOT NULL,        -- koins | gems | vitality | crowns
+    currency        TEXT NOT NULL,        -- koins | vitality в MVP
     amount          BIGINT NOT NULL,      -- знаковая: + начисление, − списание
+    counterparty    TEXT NOT NULL,        -- system:casual_rewards / shop / ...
+    counterparty_amount BIGINT NOT NULL,  -- всегда -amount
     reason          TEXT NOT NULL,        -- duel_win | iap | gacha_pull | breed_cost | ...
     ref_id          TEXT,                 -- match_id / transaction_id стора / item_id
     idempotency_key TEXT NOT NULL,        -- защита от двойного начисления
@@ -652,10 +653,21 @@ idempotency table. Текущий MVP-matcher синхронно выбирае�
 `[{ id, opponentId, mode, outcome, createdAt }]`, где `outcome` вычисляется
 сервером относительно JWT subject (`win | loss | draw`).
 
-Redis queue, ожидание до 60 секунд, confirm и rewards ledger остаются следующим
-rollout; endpoint не имитирует их готовность. До реализации `confirm` в
-`BALANCE.md` должны быть зафиксированы суммы casual-наград и дневной anti-farm
-cap — произвольные валютные значения в backend запрещены. Стабильные отказы:
+`POST /v1/match/:id/confirm` принимает пустое тело и не принимает outcome,
+сумму или валюту от клиента. Сервер читает сохранённый `MatchResult` и
+возвращает
+`{ matchId, outcome, rewards: [{ currency, amount }], confirmedAt }`.
+Нормативные суммы — 30/20/10 Koins за win/draw/loss
+(`CORE_FORMULAS.md` §6.3a). Награждаются первые 10 матчей игрока за UTC-день в
+порядке `(created_at ASC, id ASC)`; порядок confirm eligibility не меняет.
+Каждый участник подтверждает матч отдельно. Повтор и конкурентный retry
+возвращают исходный `confirmedAt` и не создают вторую транзакцию.
+
+Миграция `000009_match_rewards` создаёт `player_wallet`, двухсторонние
+`transactions` (`amount + counterparty_amount = 0`) и
+`match_confirmations`. Confirmation, ledger и wallet projection фиксируются
+одной PostgreSQL-транзакцией. Redis queue и ожидание до 60 секунд остаются
+следующим rollout; endpoint не имитирует их готовность. Стабильные отказы:
 `loadout_required`, `pet_weak`, `no_opponent`, `match_not_found`,
 `idempotency_conflict`, `core_unavailable`.
 
