@@ -225,6 +225,35 @@ func TestNativeEngineBreedingMatchesRustCore(t *testing.T) {
 	}
 }
 
+func TestNativeEngineStarterGenomeMatchesRustCore(t *testing.T) {
+	engine := NativeEngine{}
+	first, err := engine.GenerateStarterGenome(context.Background(), 1, 42)
+	if err != nil {
+		t.Fatalf("GenerateStarterGenome: %v", err)
+	}
+	second, err := engine.GenerateStarterGenome(context.Background(), 1, 42)
+	if err != nil {
+		t.Fatalf("repeat GenerateStarterGenome: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) ||
+		first.Element != 1 ||
+		first.Visual.BodyShape != 1 ||
+		first.Visual.PaletteHue != 195 ||
+		first.Rarity != 0 ||
+		first.Ability != 0 ||
+		first.Generation != 0 {
+		t.Fatalf("starter = %#v, repeated = %#v", first, second)
+	}
+	if _, err := engine.GenerateStarterGenome(context.Background(), 3, 42); err == nil {
+		t.Fatal("GenerateStarterGenome accepted a non-starter element")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := engine.GenerateStarterGenome(ctx, 0, 42); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled GenerateStarterGenome error = %v", err)
+	}
+}
+
 func goldenGenome(element uint8, generation uint32, offset uint8) Genome {
 	return Genome{
 		Visual: VisualGenes{

@@ -28,9 +28,10 @@ type BreedResponse struct {
 type Egg struct {
 	ID            string            `json:"id"`
 	OwnerID       string            `json:"ownerId"`
+	Origin        string            `json:"origin"`
 	Genome        corebridge.Genome `json:"genome"`
-	ParentAID     string            `json:"parentAId"`
-	ParentBID     string            `json:"parentBId"`
+	ParentAID     string            `json:"parentAId,omitempty"`
+	ParentBID     string            `json:"parentBId,omitempty"`
 	IncubateUntil time.Time         `json:"incubateUntil"`
 	MutatedGenes  uint16            `json:"mutatedGenes"`
 	CreatedAt     time.Time         `json:"createdAt"`
@@ -48,8 +49,8 @@ type Pet struct {
 	Generation uint32            `json:"generation"`
 	IsActive   bool              `json:"isActive"`
 	CreatedAt  time.Time         `json:"createdAt"`
-	ParentAID  string            `json:"parentAId"`
-	ParentBID  string            `json:"parentBId"`
+	ParentAID  string            `json:"parentAId,omitempty"`
+	ParentBID  string            `json:"parentBId,omitempty"`
 	IsWeak     bool              `json:"isWeak"`
 }
 

@@ -6,7 +6,10 @@ use std::{mem::size_of, panic};
 use crate::{
     HeartRateEvidence, PunchMetrics,
     combat::{GearSummary, Loadout, Match, MatchMode, simulate_combat},
-    genome::{Ability, Catalysts, Element, Genome, StatPotentials, VisualGenes, breed},
+    genome::{
+        Ability, Catalysts, Element, Genome, StatPotentials, VisualGenes, breed,
+        generate_starter_genome,
+    },
     heart::validate_heart,
     pet::Stats,
     synergy::{
@@ -19,7 +22,7 @@ use crate::{
     },
 };
 
-pub const ABI_VERSION: u32 = 0x0002_0100;
+pub const ABI_VERSION: u32 = 0x0002_0200;
 pub const ABI_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -785,6 +788,34 @@ pub extern "C" fn gochya_breed_v1(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn gochya_generate_starter_genome_v1(
+    element: u8,
+    seed: u64,
+    out_genome: *mut GochyaGenomeV1,
+) -> GochyaStatus {
+    catch_status(|| {
+        if out_genome.is_null() {
+            return GochyaStatus::InvalidArgument;
+        }
+        let starter_element = match element {
+            0 => Element::Fire,
+            1 => Element::Water,
+            2 => Element::Earth,
+            _ => return GochyaStatus::InvalidArgument,
+        };
+        let Some(genome) = generate_starter_genome(starter_element, seed) else {
+            return GochyaStatus::DomainRejected;
+        };
+        // SAFETY: the output pointer was checked and the caller promises
+        // writable storage for the complete V1 struct.
+        unsafe {
+            *out_genome = genome_to_ffi(genome);
+        }
+        GochyaStatus::Ok
+    })
+}
+
 fn genome_from_ffi(input: &GochyaGenomeV1) -> Option<Genome> {
     if input.visual.palette_hue > 360
         || input.visual.palette_sat > 100
@@ -1456,6 +1487,39 @@ mod tests {
         );
         assert_eq!(
             gochya_breed_v1(std::ptr::null(), 42, &raw mut first),
+            GochyaStatus::InvalidArgument
+        );
+    }
+
+    #[test]
+    fn abi_starter_genome_is_deterministic_and_rejects_non_starter_elements() {
+        let mut first = GochyaGenomeV1::default();
+        let mut second = GochyaGenomeV1::default();
+        assert_eq!(
+            gochya_generate_starter_genome_v1(1, 42, &raw mut first),
+            GochyaStatus::Ok
+        );
+        assert_eq!(
+            gochya_generate_starter_genome_v1(1, 42, &raw mut second),
+            GochyaStatus::Ok
+        );
+        assert_eq!(first.element, Element::Water as u8);
+        assert_eq!(first.visual.body_shape, 1);
+        assert_eq!(first.visual.palette_hue, 195);
+        assert_eq!(first.rarity, Rarity::Common as u8);
+        assert_eq!(first.ability, Ability::None as u8);
+        assert_eq!(first.generation, 0);
+        assert_eq!(first.visual.body_shape, second.visual.body_shape);
+        assert_eq!(first.visual.pattern, second.visual.pattern);
+        assert_eq!(first.visual.size, second.visual.size);
+        assert_eq!(first.visual.eye_style, second.visual.eye_style);
+        assert_eq!(first.tech_affinity, second.tech_affinity);
+        assert_eq!(
+            gochya_generate_starter_genome_v1(3, 42, &raw mut first),
+            GochyaStatus::InvalidArgument
+        );
+        assert_eq!(
+            gochya_generate_starter_genome_v1(0, 42, std::ptr::null_mut()),
             GochyaStatus::InvalidArgument
         );
     }

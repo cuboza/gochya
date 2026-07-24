@@ -300,4 +300,8 @@ GochyaStatus gochya_breed_v1(const struct GochyaBreedInputV1 *input,
                              uint64_t seed,
                              struct GochyaBreedResultV1 *out_result);
 
+GochyaStatus gochya_generate_starter_genome_v1(uint8_t element,
+                                               uint64_t seed,
+                                               struct GochyaGenomeV1 *out_genome);
+
 #endif  /* GOCHYA_CORE_H */

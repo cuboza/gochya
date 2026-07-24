@@ -120,8 +120,8 @@ func (s *PostgresStore) Breed(
 	binary.BigEndian.PutUint64(seedBytes, input.Seed)
 	if _, err := tx.Exec(ctx, `INSERT INTO eggs(
 		id,owner_id,genome,parent_a_id,parent_b_id,incubate_until,
-		created_at,breeding_seed,mutated_genes)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		created_at,breeding_seed,mutated_genes,origin)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'breeding')`,
 		input.EggID,
 		input.PlayerID,
 		genomeJSON,
@@ -188,8 +188,9 @@ func (s *PostgresStore) ListEggs(
 	if !exists {
 		return nil, ErrPlayerNotFound
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,owner_id::text,genome,
-		parent_a_id::text,parent_b_id::text,incubate_until,mutated_genes,created_at
+	rows, err := s.pool.Query(ctx, `SELECT id::text,owner_id::text,origin,genome,
+		COALESCE(parent_a_id::text,''),COALESCE(parent_b_id::text,''),
+		incubate_until,mutated_genes,created_at
 		FROM eggs WHERE owner_id=$1 AND hatched_at IS NULL
 		ORDER BY created_at ASC,id ASC`, playerID)
 	if err != nil {
@@ -204,6 +205,7 @@ func (s *PostgresStore) ListEggs(
 		if err := rows.Scan(
 			&egg.ID,
 			&egg.OwnerID,
+			&egg.Origin,
 			&genomeJSON,
 			&egg.ParentAID,
 			&egg.ParentBID,
@@ -245,7 +247,8 @@ func (s *PostgresStore) Hatch(
 	var genomeJSON []byte
 	var parentAID, parentBID, hatchedPetID string
 	var incubateUntil time.Time
-	err = tx.QueryRow(ctx, `SELECT genome,parent_a_id::text,parent_b_id::text,
+	err = tx.QueryRow(ctx, `SELECT genome,COALESCE(parent_a_id::text,''),
+		COALESCE(parent_b_id::text,''),
 		incubate_until,COALESCE(hatched_pet_id::text,'')
 		FROM eggs WHERE owner_id=$1 AND id=$2 FOR UPDATE`,
 		input.PlayerID,
@@ -301,8 +304,8 @@ func (s *PostgresStore) Hatch(
 		genome.Generation,
 		activate,
 		now,
-		parentAID,
-		parentBID,
+		nullableUUID(parentAID),
+		nullableUUID(parentBID),
 	); err != nil {
 		return Pet{}, fmt.Errorf("insert hatched pet: %w", err)
 	}
@@ -611,8 +614,8 @@ func queryPet(
 	var pet Pet
 	var genomeJSON, needsJSON, statsJSON []byte
 	err := tx.QueryRow(ctx, `SELECT id::text,owner_id::text,genome,stage,level,xp,
-		needs,stats,generation,is_active,created_at,parent_a_id::text,
-		parent_b_id::text,is_weak
+		needs,stats,generation,is_active,created_at,
+		COALESCE(parent_a_id::text,''),COALESCE(parent_b_id::text,''),is_weak
 		FROM pets WHERE owner_id=$1 AND id=$2`,
 		playerID,
 		petID,
@@ -651,6 +654,13 @@ func queryPet(
 	}
 	pet.CreatedAt = pet.CreatedAt.UTC()
 	return pet, nil
+}
+
+func nullableUUID(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func decodeGenome(data []byte) (corebridge.Genome, error) {

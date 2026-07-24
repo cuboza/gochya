@@ -20,7 +20,7 @@ pub use combat::{
 };
 pub use genome::{
     Ability, BreedResult, Catalysts, Element, Genome, StatPotentials, VisualGenes, breed,
-    hybrid_of, mutation_chance, stat_cap_penalty,
+    generate_starter_genome, hybrid_of, mutation_chance, stat_cap_penalty,
 };
 pub use heart::{
     HeartFailReason, HeartRateEvidence, HeartVerdict, heart_score, spirit_bonus, validate_heart,

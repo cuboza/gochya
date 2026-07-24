@@ -8,8 +8,8 @@
 - PCG-XSH-RR 64/32 с фиксированным stream;
 - heart gate, quality score, rarity, adaptive goals, vitality и activity stat gains;
 - стабильные WorkoutKind ID и resonance-таблица тренировок/стихий;
-- MVP-таблица стихий, детерминированный casual combat и breeding;
-- versioned C ABI для heart/quality/activity/combat/breeding;
+- MVP-таблица стихий, стартовые геномы, детерминированный casual combat и breeding;
+- versioned C ABI для heart/quality/activity/combat/breeding/onboarding;
 - unit, property, invariant, golden и C ABI smoke tests.
 
 Проверка из корня репозитория:

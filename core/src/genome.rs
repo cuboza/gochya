@@ -114,6 +114,51 @@ pub struct BreedResult {
     pub mutated_genes: u16,
 }
 
+/// Generates one of the three current starter genomes from a server seed.
+///
+/// Starter pets intentionally begin Common, ability-less and generation zero.
+/// The selected element determines the content preset; the seed only varies
+/// cosmetic indices and initial technique affinity.
+#[must_use]
+pub fn generate_starter_genome(element: Element, seed: u64) -> Option<Genome> {
+    let mut rng = rng_new(seed);
+    let (body_shape, palette_hue) = match element {
+        Element::Fire => (0, 12),
+        Element::Water => (1, 195),
+        Element::Earth => (2, 95),
+        _ => return None,
+    };
+    Some(Genome {
+        visual: VisualGenes {
+            body_shape,
+            palette_hue,
+            palette_sat: 80,
+            pattern: rng_range(&mut rng, 0, 2) as u8,
+            size: rng_range(&mut rng, 3, 5) as u8,
+            eye_style: rng_range(&mut rng, 0, 2) as u8,
+            aura: 0,
+        },
+        stats: StatPotentials {
+            str_pot: 60,
+            agi_pot: 60,
+            end_pot: 60,
+            foc_pot: 60,
+        },
+        element,
+        tech_affinity: match rng_range(&mut rng, 0, 5) {
+            0 => TechniqueType::Jab,
+            1 => TechniqueType::Hook,
+            2 => TechniqueType::Uppercut,
+            3 => TechniqueType::Cross,
+            4 => TechniqueType::Kick,
+            _ => TechniqueType::Elbow,
+        },
+        rarity: Rarity::Common,
+        ability: Ability::None,
+        generation: 0,
+    })
+}
+
 const MUTATED_BODY_SHAPE: u16 = 1 << 0;
 const MUTATED_PALETTE_HUE: u16 = 1 << 1;
 const MUTATED_PALETTE_SAT: u16 = 1 << 2;
@@ -573,5 +618,26 @@ mod tests {
             assert_ne!(result.genome.element, Element::Magma);
             assert_ne!(result.genome.element, Element::Mud);
         }
+    }
+
+    #[test]
+    fn starter_genomes_are_deterministic_and_release_scoped() {
+        for (element, body_shape, palette_hue) in [
+            (Element::Fire, 0, 12),
+            (Element::Water, 1, 195),
+            (Element::Earth, 2, 95),
+        ] {
+            let first = generate_starter_genome(element, 42).expect("starter element");
+            let repeated = generate_starter_genome(element, 42).expect("starter element");
+            assert_eq!(first, repeated);
+            assert_eq!(first.element, element);
+            assert_eq!(first.visual.body_shape, body_shape);
+            assert_eq!(first.visual.palette_hue, palette_hue);
+            assert_eq!(first.rarity, Rarity::Common);
+            assert_eq!(first.ability, Ability::None);
+            assert_eq!(first.generation, 0);
+            assert_ne!(first.tech_affinity, TechniqueType::Block);
+        }
+        assert_eq!(generate_starter_genome(Element::Air, 42), None);
     }
 }

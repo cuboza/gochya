@@ -10,7 +10,7 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
-Текущая реализация: ABI `2.1.0` (`0x00020100`), schema `1`. Сгенерированный
+Текущая реализация: ABI `2.2.0` (`0x00020200`), schema `1`. Сгенерированный
 artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
 `cbindgen` при каждой сборке.
 
@@ -120,12 +120,16 @@ enum {
 - `gochya_derive_technique_v1`;
 - `gochya_generate_loot_technique_v1`;
 - `gochya_simulate_combat_v1`;
-- `gochya_breed_v1`.
+- `gochya_breed_v1`;
+- `gochya_generate_starter_genome_v1`.
 
-Все операции используют versioned структуры со `struct_size`, проверяют null,
-schema, enum range и finite float values, возвращают `GochyaStatus`, записывают
-результат через caller-owned out-параметр и защищены `catch_unwind`. Нативный C
-harness находится в `core/tests/abi_smoke.c`, а серверный consumer — в
+Операции со структурными envelope используют `struct_size`/`schema_version`;
+все функции проверяют применимые null, schema, enum range и finite-float
+условия, возвращают `GochyaStatus`, записывают результат через caller-owned
+out-параметр и защищены `catch_unwind`. Starter-функция принимает только
+скалярные `element`/`seed` и заполняет уже версионированный на уровне symbol
+`GochyaGenomeV1`, поэтому consumer дополнительно проверяет ABI version. Нативный
+C harness находится в `core/tests/abi_smoke.c`, а серверный consumer — в
 `server/internal/corebridge`. `gochya_derive_technique_v1` атомарно возвращает
 тип, редкость, урон, скорость, stamina cost, crit chance и quality, чтобы сервер
 не дублировал формулы карты.
@@ -244,3 +248,25 @@ FFI отклоняет неизвестные enum, потенциалы/нас�
 Изменение добавочное: экспортированы новые breeding POD-структуры и
 `gochya_breed_v1`; существующие структуры и symbols не изменены. Consumers,
 которым нужен breeding, проверяют `gochya_abi_version() >= 0x00020100`.
+
+## 14. Starter genome V1
+
+`gochya_generate_starter_genome_v1(element, seed, out_genome)` создаёт
+авторитетный геном первого питомца. В текущем content release допустимы только
+числовые ID `0=Fire`, `1=Water`, `2=Earth`; остальные значения отклоняются.
+Выбранный элемент задаёт стабильный визуальный preset, а server-generated seed
+детерминированно варьирует разрешённые косметические индексы и начальную
+technique affinity.
+
+Стартовый геном всегда Common, без ability, generation `0` и с потенциалами
+`60/60/60/60`. Функция возвращает существующий `GochyaGenomeV1`, не принимает
+идентификаторы игрока/яйца и не определяет время инкубации: владение,
+одноразовость выбора и пятисекундный tutorial timer фиксирует серверная
+PostgreSQL-транзакция.
+
+### Миграция 2.1.0 → 2.2.0
+
+Изменение добавочное: экспортирован
+`gochya_generate_starter_genome_v1`; существующие структуры и symbols не
+изменены. Consumers, которым нужна выдача стартового питомца, проверяют
+`gochya_abi_version() >= 0x00020200`.

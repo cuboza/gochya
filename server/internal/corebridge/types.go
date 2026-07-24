@@ -217,4 +217,8 @@ type BreedingEngine interface {
 	Breed(context.Context, BreedInput, uint64) (BreedResult, error)
 }
 
+type StarterEngine interface {
+	GenerateStarterGenome(context.Context, uint8, uint64) (Genome, error)
+}
+
 type NativeEngine struct{}

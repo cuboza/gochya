@@ -41,6 +41,7 @@ include = [
   "gochya_generate_loot_technique_v1",
   "gochya_simulate_combat_v1",
   "gochya_breed_v1",
+  "gochya_generate_starter_genome_v1",
 ]
 item_types = ["enums", "structs", "functions"]
 

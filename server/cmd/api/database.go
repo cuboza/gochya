@@ -33,6 +33,8 @@ var requiredDatabaseTables = []string{
 	"player_items",
 	"item_transactions",
 	"breeding_idempotency",
+	"onboarding_age_gate",
+	"onboarding_starter_selections",
 }
 
 func validateDatabaseSchema(ctx context.Context, pool *pgxpool.Pool) error {

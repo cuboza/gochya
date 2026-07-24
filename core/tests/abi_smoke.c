@@ -6,7 +6,7 @@
 #include <string.h>
 
 int main(void) {
-  assert(gochya_abi_version() == UINT32_C(0x00020100));
+  assert(gochya_abi_version() == UINT32_C(0x00020200));
   assert(sizeof(GochyaPunchMetricsV1) == 40);
   assert(sizeof(GochyaHeartEvidenceV1) == 36);
   assert(sizeof(GochyaHeartVerdictV1) == 28);
@@ -235,6 +235,24 @@ int main(void) {
   assert((first_breed.mutated_genes & UINT16_C(0xc000)) == 0);
   breed_input.parent_a.visual.palette_hue = 361;
   assert(gochya_breed_v1(&breed_input, 42, &first_breed) ==
+         GochyaStatus_InvalidArgument);
+
+  GochyaGenomeV1 first_starter;
+  GochyaGenomeV1 second_starter;
+  memset(&first_starter, 0, sizeof(first_starter));
+  memset(&second_starter, 0, sizeof(second_starter));
+  assert(gochya_generate_starter_genome_v1(1, 42, &first_starter) ==
+         GochyaStatus_Ok);
+  assert(gochya_generate_starter_genome_v1(1, 42, &second_starter) ==
+         GochyaStatus_Ok);
+  assert(memcmp(&first_starter, &second_starter, sizeof(first_starter)) == 0);
+  assert(first_starter.element == 1);
+  assert(first_starter.visual.body_shape == 1);
+  assert(first_starter.visual.palette_hue == 195);
+  assert(first_starter.rarity == 0);
+  assert(first_starter.ability == 0);
+  assert(first_starter.generation == 0);
+  assert(gochya_generate_starter_genome_v1(3, 42, &first_starter) ==
          GochyaStatus_InvalidArgument);
 
   return 0;

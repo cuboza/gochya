@@ -33,6 +33,9 @@
   выбранные catalysts, а Rust Core по server seed создаёт яйцо;
   `GET /v1/me/eggs` возвращает инкубирующиеся яйца, а
   `POST /v1/me/eggs/:id/hatch` конкурентно создаёт ровно одного питомца;
+- `POST /v1/me/onboarding/age-gate` сохраняет только производную возрастную
+  категорию, а `POST /v1/me/onboarding/starter-egg` один раз выдаёт выбранное
+  Fire/Water/Earth яйцо с tutorial-инкубацией 5 секунд;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -105,9 +108,20 @@ Goals считаются Rust Core из среднего предыдущих 14
 родословная до трёх поколений, wallet и item inventory читаются сервером.
 Миграция `000013` создаёт `eggs`, `player_items`, двухсторонний item ledger и
 неистекающий idempotency result: одинаковый UUID-ключ никогда не списывает
-стоимость повторно. Геном и 4–24 часа инкубации вычисляет ABI 2.1.0; текущий
+стоимость повторно. Геном и 4–24 часа инкубации вычисляет ABI 2.2.0; текущий
 content gate выпускает только Fire/Water/Earth и Steam. Hatch блокирует player
 и egg rows, поэтому конкурентные запросы возвращают одного сохранённого pet.
+
+`internal/onboarding` реализует fail-closed вход в первый игровой цикл.
+Age gate принимает дату рождения только для вычисления возрастной категории:
+сама дата и её hash не сохраняются, в `onboarding_age_gate` остаются лишь
+`under13 | 13plus`, версия политики, UUID идемпотентности и время фиксации.
+`under13` получает `parental_consent_required`; текущий срез не имитирует
+отсутствующий процесс проверки согласия. Для `13plus` сервер блокирует player
+row, убеждается, что питомцев и яиц ещё нет, вызывает Core ABI 2.2.0 с
+server-generated seed и атомарно сохраняет одно starter-яйцо. Частичный unique
+index и сохранённый response делают конкурентные retries безопасными даже
+после вылупления.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и
@@ -249,6 +263,8 @@ POST /v1/sync/activity
 GET  /v1/me/activity/week
 POST /v1/me/activity/reward
 POST /v1/breeding/breed
+POST /v1/me/onboarding/age-gate
+POST /v1/me/onboarding/starter-egg
 GET  /v1/me/eggs
 POST /v1/me/eggs/:id/hatch
 GET  /v1/match/:id

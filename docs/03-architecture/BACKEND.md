@@ -101,6 +101,14 @@ nonces, device enrollment, loadout и профильные ограничени�
 блокирует egg row и сохраняет `hatched_pet_id`, поэтому повтор возвращает
 существующего питомца.
 
+Миграция `000014_onboarding` разрешает starter-яйцам не иметь родителей,
+добавляет источник яйца и гарантирует не более одного starter-яйца на игрока.
+Age gate хранит только производную категорию `under13 | 13plus`, но не дату
+рождения. Выбор Fire/Water/Earth сериализуется блокировкой player row, вызывает
+Rust Core по server seed и сохраняет яйцо, idempotency response и
+пятисекундный tutorial timer одной транзакцией. До реализации проверяемого
+parental-consent flow категория `under13` блокируется fail-closed.
+
 ```sql
 -- Профиль игрока
 CREATE TABLE players (
@@ -696,6 +704,17 @@ GET    /me/eggs                                          → Egg[]
 POST   /me/eggs/:id/hatch                                → Pet
 GET    /me/pets/:id/lineage                              → LineageTree
 ```
+
+### Onboarding
+```
+POST   /me/onboarding/age-gate
+       { birthDate }                  → { status, coppaRestricted, recordedAt }
+POST   /me/onboarding/starter-egg
+       { element: fire|water|earth }  → { eggId, element, incubateUntil }
+```
+
+Оба POST требуют UUID `Idempotency-Key`. Дата рождения используется только
+внутри первого запроса для вычисления категории и не записывается в БД.
 
 ### Shop / Gacha / IAP
 ```

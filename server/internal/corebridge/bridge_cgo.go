@@ -350,6 +350,43 @@ func (NativeEngine) Breed(
 	return result, nil
 }
 
+func (NativeEngine) GenerateStarterGenome(
+	ctx context.Context,
+	element uint8,
+	seed uint64,
+) (Genome, error) {
+	select {
+	case <-ctx.Done():
+		return Genome{}, ctx.Err()
+	default:
+	}
+	var output C.GochyaGenomeV1
+	status := C.gochya_generate_starter_genome_v1(
+		C.uint8_t(element),
+		C.uint64_t(seed),
+		&output,
+	)
+	if status != C.GochyaStatus_Ok {
+		return Genome{}, fmt.Errorf(
+			"generate starter genome: core status %d",
+			int32(status),
+		)
+	}
+	result := genomeOutput(output)
+	if !validGenome(result) ||
+		result.Element != element ||
+		result.Element > 2 ||
+		result.TechAffinity > 5 ||
+		result.Rarity != 0 ||
+		result.Ability != 0 ||
+		result.Generation != 0 {
+		return Genome{}, fmt.Errorf(
+			"generate starter genome: invalid core output envelope",
+		)
+	}
+	return result, nil
+}
+
 func genomeInput(genome Genome) C.GochyaGenomeV1 {
 	input := C.GochyaGenomeV1{}
 	input.visual.body_shape = C.uint8_t(genome.Visual.BodyShape)

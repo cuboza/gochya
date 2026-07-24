@@ -19,6 +19,7 @@ import (
 	"github.com/gochya/gochya/server/internal/device"
 	"github.com/gochya/gochya/server/internal/dojo"
 	"github.com/gochya/gochya/server/internal/inventory"
+	"github.com/gochya/gochya/server/internal/onboarding"
 	"github.com/gochya/gochya/server/internal/profile"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -309,6 +310,25 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create breeding HTTP API: %w", err)
 	}
+	onboardingStore, err := onboarding.NewPostgresStore(pool)
+	if err != nil {
+		return fmt.Errorf("create onboarding store: %w", err)
+	}
+	onboardingService, err := onboarding.NewService(onboarding.ServiceConfig{
+		Store: onboardingStore,
+		Core:  core,
+	})
+	if err != nil {
+		return fmt.Errorf("create onboarding service: %w", err)
+	}
+	onboardingAPI, err := onboarding.NewHTTPHandler(
+		onboardingService,
+		authenticator,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("create onboarding HTTP API: %w", err)
+	}
 	service, err := dojo.NewService(dojo.ServiceConfig{
 		Store:                     store,
 		Core:                      core,
@@ -346,6 +366,9 @@ func run() error {
 	application.Handle("/v1/breeding/breed", breedingRoutes)
 	application.Handle("/v1/me/eggs", breedingRoutes)
 	application.Handle("/v1/me/eggs/", breedingRoutes)
+	onboardingRoutes := onboardingAPI.Routes()
+	application.Handle("/v1/me/onboarding/age-gate", onboardingRoutes)
+	application.Handle("/v1/me/onboarding/starter-egg", onboardingRoutes)
 	application.Handle("/", api.Routes())
 
 	server := &http.Server{

@@ -89,6 +89,7 @@ func TestPostgresBreedingAndHatchAreAtomicAndIdempotent(t *testing.T) {
 	eggs, err := store.ListEggs(ctx, testPlayerID)
 	if err != nil || len(eggs) != 1 ||
 		eggs[0].ID != testEggID ||
+		eggs[0].Origin != "breeding" ||
 		eggs[0].Genome.Generation != 1 ||
 		eggs[0].Genome.Element != 7 ||
 		eggs[0].MutatedGenes != 1 {

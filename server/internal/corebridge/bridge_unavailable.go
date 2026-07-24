@@ -56,3 +56,11 @@ func (NativeEngine) Breed(
 ) (BreedResult, error) {
 	return BreedResult{}, ErrUnavailable
 }
+
+func (NativeEngine) GenerateStarterGenome(
+	context.Context,
+	uint8,
+	uint64,
+) (Genome, error) {
+	return Genome{}, ErrUnavailable
+}
