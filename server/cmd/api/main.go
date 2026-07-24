@@ -15,6 +15,7 @@ import (
 	"github.com/gochya/gochya/server/internal/auth"
 	"github.com/gochya/gochya/server/internal/battle"
 	"github.com/gochya/gochya/server/internal/breeding"
+	"github.com/gochya/gochya/server/internal/care"
 	"github.com/gochya/gochya/server/internal/corebridge"
 	"github.com/gochya/gochya/server/internal/device"
 	"github.com/gochya/gochya/server/internal/dojo"
@@ -291,6 +292,21 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create activity HTTP API: %w", err)
 	}
+	careStore, err := care.NewPostgresStore(pool)
+	if err != nil {
+		return fmt.Errorf("create care store: %w", err)
+	}
+	careService, err := care.NewService(care.ServiceConfig{
+		Store: careStore,
+		Core:  core,
+	})
+	if err != nil {
+		return fmt.Errorf("create care service: %w", err)
+	}
+	careAPI, err := care.NewHTTPHandler(careService, authenticator, nil)
+	if err != nil {
+		return fmt.Errorf("create care HTTP API: %w", err)
+	}
 	breedingStore, err := breeding.NewPostgresStore(pool)
 	if err != nil {
 		return fmt.Errorf("create breeding store: %w", err)
@@ -362,6 +378,7 @@ func run() error {
 	application.Handle("/v1/sync/activity", activityRoutes)
 	application.Handle("/v1/me/activity/week", activityRoutes)
 	application.Handle("/v1/me/activity/reward", activityRoutes)
+	application.Handle("/v1/sync/commands", careAPI.Routes())
 	breedingRoutes := breedingAPI.Routes()
 	application.Handle("/v1/breeding/breed", breedingRoutes)
 	application.Handle("/v1/me/eggs", breedingRoutes)

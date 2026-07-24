@@ -261,6 +261,23 @@ typedef struct GochyaBreedResultV1 {
   uint8_t reserved[14];
 } GochyaBreedResultV1;
 
+typedef struct GochyaNeedsStateV1 {
+  uint32_t struct_size;
+  uint16_t schema_version;
+  uint8_t is_sleeping;
+  uint8_t is_weak;
+  uint8_t hunger;
+  uint8_t energy;
+  uint8_t hygiene;
+  uint8_t mood;
+  uint32_t hunger_remainder;
+  uint32_t energy_remainder;
+  uint32_t hygiene_remainder;
+  uint32_t mood_remainder;
+  uint64_t zero_streak_seconds;
+  uint8_t reserved[16];
+} GochyaNeedsStateV1;
+
 uint32_t gochya_abi_version(void);
 
 GochyaStatus gochya_quality_score_v1(const struct GochyaPunchMetricsV1 *metrics,
@@ -303,5 +320,14 @@ GochyaStatus gochya_breed_v1(const struct GochyaBreedInputV1 *input,
 GochyaStatus gochya_generate_starter_genome_v1(uint8_t element,
                                                uint64_t seed,
                                                struct GochyaGenomeV1 *out_genome);
+
+GochyaStatus gochya_advance_needs_v1(const struct GochyaNeedsStateV1 *input,
+                                     uint64_t elapsed_seconds,
+                                     struct GochyaNeedsStateV1 *out_state);
+
+GochyaStatus gochya_apply_care_v1(const struct GochyaNeedsStateV1 *input,
+                                  uint8_t action,
+                                  uint8_t item,
+                                  struct GochyaNeedsStateV1 *out_state);
 
 #endif  /* GOCHYA_CORE_H */

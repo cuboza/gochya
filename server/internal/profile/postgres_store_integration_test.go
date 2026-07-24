@@ -71,6 +71,7 @@ func TestPostgresProfilePetsAndAtomicActivation(t *testing.T) {
 		!pets[0].IsActive ||
 		pets[0].Needs.Hunger != 80 ||
 		pets[0].Stats.Strength != 11 ||
+		!pets[0].NeedsUpdatedAt.Equal(pets[0].CreatedAt) ||
 		pets[0].CreatedAt.Location() != time.UTC {
 		t.Fatalf("pets = %#v", pets)
 	}
@@ -302,6 +303,7 @@ func profilePostgresTestPool(
 		"../../migrations/000000_base.up.sql",
 		"../../migrations/000006_loadouts.up.sql",
 		"../../migrations/000007_profile_pets_read.up.sql",
+		"../../migrations/000015_care_sync.up.sql",
 	} {
 		migration, err := os.ReadFile(path)
 		if err != nil {

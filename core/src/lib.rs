@@ -25,7 +25,10 @@ pub use genome::{
 pub use heart::{
     HeartFailReason, HeartRateEvidence, HeartVerdict, heart_score, spirit_bonus, validate_heart,
 };
-pub use pet::{Needs, Pet, Stage, Stats, mood_multiplier};
+pub use pet::{
+    CareAction, CareItem, MAX_NEEDS_ADVANCE_SECONDS, Needs, NeedsDecayRemainders, NeedsState, Pet,
+    Stage, Stats, WEAKNESS_AFTER_SECONDS, advance_needs, apply_care_action, mood_multiplier,
+};
 pub use rng::{Rng, rng_new, rng_next, rng_range};
 pub use serde_helpers::{SCHEMA_VERSION, SchemaEnvelope};
 pub use synergy::{

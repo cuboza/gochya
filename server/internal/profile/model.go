@@ -49,6 +49,9 @@ type Pet struct {
 	LastBredAt     *time.Time      `json:"lastBredAt,omitempty"`
 	NeedsZeroSince *time.Time      `json:"needsZeroSince,omitempty"`
 	IsWeak         bool            `json:"isWeak"`
+	CareRevision   uint64          `json:"careRevision"`
+	NeedsUpdatedAt time.Time       `json:"needsUpdatedAt"`
+	SleepingUntil  *time.Time      `json:"sleepingUntil,omitempty"`
 }
 
 type ActivatePetCommit struct {

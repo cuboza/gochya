@@ -254,6 +254,58 @@ func TestNativeEngineStarterGenomeMatchesRustCore(t *testing.T) {
 	}
 }
 
+func TestNativeEngineNeedsAndCareMatchRustCore(t *testing.T) {
+	engine := NativeEngine{}
+	initial := NeedsState{
+		Needs: Needs{
+			Hunger:  100,
+			Energy:  100,
+			Hygiene: 100,
+			Mood:    100,
+		},
+	}
+	whole, err := engine.AdvanceNeeds(context.Background(), initial, 86_400)
+	if err != nil {
+		t.Fatalf("AdvanceNeeds: %v", err)
+	}
+	chunked := initial
+	for range 24 {
+		chunked, err = engine.AdvanceNeeds(context.Background(), chunked, 3_600)
+		if err != nil {
+			t.Fatalf("chunked AdvanceNeeds: %v", err)
+		}
+	}
+	if !reflect.DeepEqual(whole, chunked) ||
+		whole.Needs != (Needs{Hunger: 76, Energy: 84, Hygiene: 88, Mood: 100}) {
+		t.Fatalf("whole = %#v, chunked = %#v", whole, chunked)
+	}
+	careInput := initial
+	careInput.Needs.Hunger = 50
+	careInput.Needs.Mood = 90
+	fed, err := engine.ApplyCare(context.Background(), careInput, 0, 2)
+	if err != nil {
+		t.Fatalf("ApplyCare: %v", err)
+	}
+	if fed.Needs.Hunger != 100 || fed.Needs.Mood != 95 || fed.Sleeping {
+		t.Fatalf("fed state = %#v", fed)
+	}
+	sleeping, err := engine.ApplyCare(context.Background(), careInput, 3, 0)
+	if err != nil {
+		t.Fatalf("sleep ApplyCare: %v", err)
+	}
+	if !sleeping.Sleeping {
+		t.Fatalf("sleeping state = %#v", sleeping)
+	}
+	if _, err := engine.ApplyCare(context.Background(), careInput, 0, 4); err == nil {
+		t.Fatal("ApplyCare accepted soap as food")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := engine.AdvanceNeeds(ctx, initial, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled AdvanceNeeds error = %v", err)
+	}
+}
+
 func goldenGenome(element uint8, generation uint32, offset uint8) Genome {
 	return Genome{
 		Visual: VisualGenes{

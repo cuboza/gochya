@@ -245,7 +245,10 @@ const petSelect = `
 		       COALESCE(parent_b_id::text, ''),
 		       last_bred_at,
 		       needs_zero_since,
-		       is_weak
+		       is_weak,
+		       care_revision,
+		       needs_updated_at,
+		       sleeping_until
 		  FROM pets`
 
 type rowScanner interface {
@@ -260,6 +263,7 @@ func scanPet(row rowScanner) (Pet, error) {
 		statsJSON      []byte
 		lastBredAt     pgtype.Timestamptz
 		needsZeroSince pgtype.Timestamptz
+		sleepingUntil  pgtype.Timestamptz
 	)
 	if err := row.Scan(
 		&pet.ID,
@@ -279,6 +283,9 @@ func scanPet(row rowScanner) (Pet, error) {
 		&lastBredAt,
 		&needsZeroSince,
 		&pet.IsWeak,
+		&pet.CareRevision,
+		&pet.NeedsUpdatedAt,
+		&sleepingUntil,
 	); err != nil {
 		return Pet{}, err
 	}
@@ -304,6 +311,11 @@ func scanPet(row rowScanner) (Pet, error) {
 	if needsZeroSince.Valid {
 		value := needsZeroSince.Time.UTC()
 		pet.NeedsZeroSince = &value
+	}
+	pet.NeedsUpdatedAt = pet.NeedsUpdatedAt.UTC()
+	if sleepingUntil.Valid {
+		value := sleepingUntil.Time.UTC()
+		pet.SleepingUntil = &value
 	}
 	return pet, nil
 }

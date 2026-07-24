@@ -14,6 +14,7 @@ include = [
   "GochyaPunchMetricsV1",
   "GochyaHeartEvidenceV1",
   "GochyaHeartVerdictV1",
+  "GochyaNeedsStateV1",
   "GochyaDailyActivityV1",
   "GochyaDailyGoalsV1",
   "GochyaPersonalBaselineV1",
@@ -42,6 +43,8 @@ include = [
   "gochya_simulate_combat_v1",
   "gochya_breed_v1",
   "gochya_generate_starter_genome_v1",
+  "gochya_advance_needs_v1",
+  "gochya_apply_care_v1",
 ]
 item_types = ["enums", "structs", "functions"]
 

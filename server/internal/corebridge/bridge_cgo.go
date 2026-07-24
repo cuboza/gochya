@@ -387,6 +387,127 @@ func (NativeEngine) GenerateStarterGenome(
 	return result, nil
 }
 
+func (NativeEngine) AdvanceNeeds(
+	ctx context.Context,
+	state NeedsState,
+	elapsedSeconds uint64,
+) (NeedsState, error) {
+	select {
+	case <-ctx.Done():
+		return NeedsState{}, ctx.Err()
+	default:
+	}
+	input := needsStateInput(state)
+	var output C.GochyaNeedsStateV1
+	status := C.gochya_advance_needs_v1(
+		&input,
+		C.uint64_t(elapsedSeconds),
+		&output,
+	)
+	if status != C.GochyaStatus_Ok {
+		return NeedsState{}, fmt.Errorf(
+			"advance pet needs: core status %d",
+			int32(status),
+		)
+	}
+	result, ok := needsStateOutput(output)
+	if !ok || result.Sleeping != state.Sleeping {
+		return NeedsState{}, fmt.Errorf(
+			"advance pet needs: invalid core output envelope",
+		)
+	}
+	return result, nil
+}
+
+func (NativeEngine) ApplyCare(
+	ctx context.Context,
+	state NeedsState,
+	action uint8,
+	item uint8,
+) (NeedsState, error) {
+	select {
+	case <-ctx.Done():
+		return NeedsState{}, ctx.Err()
+	default:
+	}
+	input := needsStateInput(state)
+	var output C.GochyaNeedsStateV1
+	status := C.gochya_apply_care_v1(
+		&input,
+		C.uint8_t(action),
+		C.uint8_t(item),
+		&output,
+	)
+	if status != C.GochyaStatus_Ok {
+		return NeedsState{}, fmt.Errorf(
+			"apply pet care: core status %d",
+			int32(status),
+		)
+	}
+	result, ok := needsStateOutput(output)
+	if !ok || result.Sleeping != (action == 3) {
+		return NeedsState{}, fmt.Errorf(
+			"apply pet care: invalid core output envelope",
+		)
+	}
+	return result, nil
+}
+
+func needsStateInput(state NeedsState) C.GochyaNeedsStateV1 {
+	input := C.GochyaNeedsStateV1{}
+	input.struct_size = C.uint32_t(unsafe.Sizeof(input))
+	input.schema_version = schemaVersion
+	if state.Sleeping {
+		input.is_sleeping = 1
+	}
+	if state.Weak {
+		input.is_weak = 1
+	}
+	input.hunger = C.uint8_t(state.Needs.Hunger)
+	input.energy = C.uint8_t(state.Needs.Energy)
+	input.hygiene = C.uint8_t(state.Needs.Hygiene)
+	input.mood = C.uint8_t(state.Needs.Mood)
+	input.hunger_remainder = C.uint32_t(state.Remainders.Hunger)
+	input.energy_remainder = C.uint32_t(state.Remainders.Energy)
+	input.hygiene_remainder = C.uint32_t(state.Remainders.Hygiene)
+	input.mood_remainder = C.uint32_t(state.Remainders.Mood)
+	input.zero_streak_seconds = C.uint64_t(state.ZeroStreakSeconds)
+	return input
+}
+
+func needsStateOutput(output C.GochyaNeedsStateV1) (NeedsState, bool) {
+	result := NeedsState{
+		Needs: Needs{
+			Hunger:  uint8(output.hunger),
+			Energy:  uint8(output.energy),
+			Hygiene: uint8(output.hygiene),
+			Mood:    uint8(output.mood),
+		},
+		Remainders: NeedsDecayRemainders{
+			Hunger:  uint32(output.hunger_remainder),
+			Energy:  uint32(output.energy_remainder),
+			Hygiene: uint32(output.hygiene_remainder),
+			Mood:    uint32(output.mood_remainder),
+		},
+		ZeroStreakSeconds: uint64(output.zero_streak_seconds),
+		Sleeping:          output.is_sleeping != 0,
+		Weak:              output.is_weak != 0,
+	}
+	valid := output.struct_size == C.uint32_t(unsafe.Sizeof(output)) &&
+		output.schema_version == schemaVersion &&
+		output.is_sleeping <= 1 &&
+		output.is_weak <= 1 &&
+		result.Needs.Hunger <= 100 &&
+		result.Needs.Energy <= 100 &&
+		result.Needs.Hygiene <= 100 &&
+		result.Needs.Mood <= 100 &&
+		result.Remainders.Hunger < 10_800_000 &&
+		result.Remainders.Energy < 10_800_000 &&
+		result.Remainders.Hygiene < 10_800_000 &&
+		result.Remainders.Mood < 10_800_000
+	return result, valid
+}
+
 func genomeInput(genome Genome) C.GochyaGenomeV1 {
 	input := C.GochyaGenomeV1{}
 	input.visual.body_shape = C.uint8_t(genome.Visual.BodyShape)

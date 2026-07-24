@@ -221,4 +221,33 @@ type StarterEngine interface {
 	GenerateStarterGenome(context.Context, uint8, uint64) (Genome, error)
 }
 
+const MaxNeedsAdvanceSeconds = 24 * 60 * 60
+
+type Needs struct {
+	Hunger  uint8 `json:"hunger"`
+	Energy  uint8 `json:"energy"`
+	Hygiene uint8 `json:"hygiene"`
+	Mood    uint8 `json:"mood"`
+}
+
+type NeedsDecayRemainders struct {
+	Hunger  uint32
+	Energy  uint32
+	Hygiene uint32
+	Mood    uint32
+}
+
+type NeedsState struct {
+	Needs             Needs
+	Remainders        NeedsDecayRemainders
+	ZeroStreakSeconds uint64
+	Sleeping          bool
+	Weak              bool
+}
+
+type CareEngine interface {
+	AdvanceNeeds(context.Context, NeedsState, uint64) (NeedsState, error)
+	ApplyCare(context.Context, NeedsState, uint8, uint8) (NeedsState, error)
+}
+
 type NativeEngine struct{}

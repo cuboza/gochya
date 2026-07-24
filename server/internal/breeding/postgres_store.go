@@ -294,8 +294,8 @@ func (s *PostgresStore) Hatch(
 	statsJSON := []byte(`{"str":1,"agi":1,"end":1,"foc":1}`)
 	if _, err := tx.Exec(ctx, `INSERT INTO pets(
 		id,owner_id,genome,stage,level,xp,needs,stats,generation,is_active,
-		created_at,parent_a_id,parent_b_id,is_weak)
-		VALUES($1,$2,$3,'baby',1,0,$4,$5,$6,$7,$8,$9,$10,FALSE)`,
+		created_at,parent_a_id,parent_b_id,is_weak,needs_updated_at)
+		VALUES($1,$2,$3,'baby',1,0,$4,$5,$6,$7,$8,$9,$10,FALSE,$8)`,
 		input.PetID,
 		input.PlayerID,
 		genomeJSON,

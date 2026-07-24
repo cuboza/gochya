@@ -159,6 +159,29 @@ func (s *PostgresStore) SelectStarterEgg(
 	); err != nil {
 		return StarterEggResponse{}, fmt.Errorf("insert starter egg: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO player_items(
+		player_id,item_id,quantity,updated_at)
+		VALUES($1,'apple',3,$2)
+		ON CONFLICT(player_id,item_id) DO UPDATE
+		SET quantity=player_items.quantity+EXCLUDED.quantity,
+		    updated_at=EXCLUDED.updated_at`,
+		input.PlayerID,
+		now,
+	); err != nil {
+		return StarterEggResponse{}, fmt.Errorf("grant starter apples: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO item_transactions(
+		player_id,item_id,amount,counterparty,counterparty_amount,
+		reason,ref_id,idempotency_key,created_at)
+		VALUES($1,'apple',3,'system:onboarding',-3,
+		'starter_kit',$2,'starter:' || $3,$4)`,
+		input.PlayerID,
+		input.EggID,
+		input.IdempotencyKey,
+		now,
+	); err != nil {
+		return StarterEggResponse{}, fmt.Errorf("insert starter item ledger: %w", err)
+	}
 	response = StarterEggResponse{
 		EggID:         input.EggID,
 		Element:       input.Element,

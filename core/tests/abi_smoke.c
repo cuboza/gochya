@@ -6,10 +6,11 @@
 #include <string.h>
 
 int main(void) {
-  assert(gochya_abi_version() == UINT32_C(0x00020200));
+  assert(gochya_abi_version() == UINT32_C(0x00020300));
   assert(sizeof(GochyaPunchMetricsV1) == 40);
   assert(sizeof(GochyaHeartEvidenceV1) == 36);
   assert(sizeof(GochyaHeartVerdictV1) == 28);
+  assert(sizeof(GochyaNeedsStateV1) == 56);
   assert(sizeof(GochyaPersonalBaselineV1) == 32);
   assert(sizeof(GochyaWorkoutV1) == 8);
   assert(sizeof(GochyaActivityInputV1) == 120);
@@ -254,6 +255,36 @@ int main(void) {
   assert(first_starter.generation == 0);
   assert(gochya_generate_starter_genome_v1(3, 42, &first_starter) ==
          GochyaStatus_InvalidArgument);
+
+  GochyaNeedsStateV1 needs;
+  GochyaNeedsStateV1 decayed_needs;
+  memset(&needs, 0, sizeof(needs));
+  memset(&decayed_needs, 0, sizeof(decayed_needs));
+  needs.struct_size = sizeof(needs);
+  needs.schema_version = 1;
+  needs.hunger = 100;
+  needs.energy = 100;
+  needs.hygiene = 100;
+  needs.mood = 100;
+  assert(gochya_advance_needs_v1(&needs, 86400, &decayed_needs) ==
+         GochyaStatus_Ok);
+  assert(decayed_needs.hunger == 76);
+  assert(decayed_needs.energy == 84);
+  assert(decayed_needs.hygiene == 88);
+  assert(decayed_needs.mood == 100);
+  assert(gochya_advance_needs_v1(&needs, 86401, &decayed_needs) ==
+         GochyaStatus_DomainRejected);
+
+  needs.hunger = 50;
+  needs.energy = 10;
+  needs.hygiene = 10;
+  needs.mood = 90;
+  assert(gochya_apply_care_v1(&needs, 0, 2, &decayed_needs) ==
+         GochyaStatus_Ok);
+  assert(decayed_needs.hunger == 100);
+  assert(decayed_needs.mood == 95);
+  assert(gochya_apply_care_v1(&needs, 0, 4, &decayed_needs) ==
+         GochyaStatus_DomainRejected);
 
   return 0;
 }

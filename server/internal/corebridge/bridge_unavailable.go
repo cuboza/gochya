@@ -64,3 +64,20 @@ func (NativeEngine) GenerateStarterGenome(
 ) (Genome, error) {
 	return Genome{}, ErrUnavailable
 }
+
+func (NativeEngine) AdvanceNeeds(
+	context.Context,
+	NeedsState,
+	uint64,
+) (NeedsState, error) {
+	return NeedsState{}, ErrUnavailable
+}
+
+func (NativeEngine) ApplyCare(
+	context.Context,
+	NeedsState,
+	uint8,
+	uint8,
+) (NeedsState, error) {
+	return NeedsState{}, ErrUnavailable
+}
