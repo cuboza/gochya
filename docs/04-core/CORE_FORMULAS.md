@@ -16,11 +16,20 @@ MOOD_DECAY_PER_HOUR     = depends on other needs (см. ниже)
 NIGHT_DECAY_MULTIPLIER  = 0.333   // ночью в 3× медленнее
 ```
 
+В release V1 «ночь» означает авторитетный `is_sleeping`, а не локальное время
+устройства. Core считает decay целыми секундами fixed-point с общим
+знаменателем `10_800_000` и сохраняет четыре остатка между вызовами. Awake rates
+равны `3000/2010/1500/1500`, sleeping rates —
+`1000/670/500/500` для Hunger/Energy/Hygiene/Mood соответственно. Поэтому
+разбиение одного интервала на sync chunks не меняет результат. Один вызов
+принимает максимум 86 400 секунд; более длинный серверный интервал разбивается
+на суточные chunks.
+
 ### 1.2. Mood decay (зависит от остальных)
 ```
-mood_decay = avg(0, hunger==0 ? 1 : 0,
-                  energy==0 ? 1 : 0,
-                  hygiene==0 ? 1 : 0) * MOOD_DECAY_RATE
+mood_decay = any(hunger==0, energy==0, hygiene==0)
+    ? MOOD_DECAY_RATE
+    : 0
 ```
 - Если все потребности > 0 → mood не падает.
 - Если любая = 0 → mood −1/2час.
@@ -63,6 +72,25 @@ enterWeakness(pet):
 exitWeakness:
     when all needs.* >= 50 again
 ```
+
+### 1.7. Care actions V1
+
+| Действие | Предмет | Эффект Core |
+|---|---|---|
+| Feed | `apple` | Hunger +20 |
+| Feed | `steak` | Hunger +60, Mood +5 |
+| Feed | `energy_drink` | Energy +40 |
+| Clean | без предмета | Hygiene +20 |
+| Clean | `soap` | Hygiene +50 |
+| Clean | `shampoo` | Hygiene +80, Mood +5 |
+| Play | без предмета | Mood +20, Energy −5 |
+| Sleep | без предмета | включает sleeping state; длительность задаёт сервер |
+
+Все потребности насыщаются в `[0, 100]`. Любое действие, кроме Sleep, выводит
+питомца из sleeping state. Care сбрасывает непрерывный zero-streak, только если
+после действия ни одна потребность не равна нулю; Weakness снимается только
+когда все четыре потребности достигли 50. Владение и расход предметов в Core не
+входят и фиксируются сервером атомарно с новым состоянием.
 
 ---
 

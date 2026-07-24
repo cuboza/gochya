@@ -36,6 +36,9 @@
 - `POST /v1/me/onboarding/age-gate` сохраняет только производную возрастную
   категорию, а `POST /v1/me/onboarding/starter-egg` один раз выдаёт выбранное
   Fire/Water/Earth яйцо с tutorial-инкубацией 5 секунд;
+- `POST /v1/sync/commands` сверяет offline care с авторитетной revision,
+  пересчитывает decay/Weakness через Rust Core и атомарно фиксирует эффект,
+  расход предмета и идемпотентный результат;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -108,7 +111,7 @@ Goals считаются Rust Core из среднего предыдущих 14
 родословная до трёх поколений, wallet и item inventory читаются сервером.
 Миграция `000013` создаёт `eggs`, `player_items`, двухсторонний item ledger и
 неистекающий idempotency result: одинаковый UUID-ключ никогда не списывает
-стоимость повторно. Геном и 4–24 часа инкубации вычисляет ABI 2.2.0; текущий
+стоимость повторно. Геном и 4–24 часа инкубации вычисляет ABI 2.3.0; текущий
 content gate выпускает только Fire/Water/Earth и Steam. Hatch блокирует player
 и egg rows, поэтому конкурентные запросы возвращают одного сохранённого pet.
 
@@ -118,10 +121,22 @@ Age gate принимает дату рождения только для выч
 `under13 | 13plus`, версия политики, UUID идемпотентности и время фиксации.
 `under13` получает `parental_consent_required`; текущий срез не имитирует
 отсутствующий процесс проверки согласия. Для `13plus` сервер блокирует player
-row, убеждается, что питомцев и яиц ещё нет, вызывает Core ABI 2.2.0 с
+row, убеждается, что питомцев и яиц ещё нет, вызывает Core ABI 2.3.0 с
 server-generated seed и атомарно сохраняет одно starter-яйцо. Частичный unique
 index и сохранённый response делают конкурентные retries безопасными даже
-после вылупления.
+после вылупления. В той же транзакции starter kit выдаёт три яблока и
+балансирующую item-ledger запись.
+
+`internal/care` реализует reconcile для `feed`, `clean`, `play` и `sleep`.
+Batch содержит 1–100 команд одного питомца, а `If-Match` обязан совпадать с
+`baseRevision` первой. Player/pet rows сериализуют устройства; уникальный
+`(player_id, operation_id)` сохраняет hash и исходный результат, поэтому retry
+не повторяет Core-вызов или расход. Миграция `000015` добавляет pet care
+revision, время и fixed-point остатки decay, sleeping window и
+`care_operations`. Сервер считает elapsed time целыми секундами, обрабатывает
+sleep/awake интервалы суточными chunks ABI 2.3 и назначает Sleep ровно на восемь
+часов. Предмет и его двухсторонняя ledger-запись изменяются в той же транзакции,
+что и canonical pet snapshot.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и
@@ -260,6 +275,7 @@ GET  /v1/me/pets/:id
 POST /v1/me/pets/:id/activate
 POST /v1/matchmaking/queue
 POST /v1/sync/activity
+POST /v1/sync/commands
 GET  /v1/me/activity/week
 POST /v1/me/activity/reward
 POST /v1/breeding/breed

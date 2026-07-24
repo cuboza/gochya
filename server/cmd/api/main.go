@@ -66,7 +66,7 @@ func run() error {
 	}
 
 	core := corebridge.NativeEngine{}
-	if _, err := core.ValidateHeart(startupCtx, corebridge.HeartEvidence{}); err != nil {
+	if err := core.VerifyABI(startupCtx); err != nil {
 		return fmt.Errorf("probe native Gochya Core: %w", err)
 	}
 	store, err := dojo.NewPostgresStore(dojo.PostgresStoreConfig{Pool: pool})

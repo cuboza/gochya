@@ -109,6 +109,14 @@ Rust Core по server seed и сохраняет яйцо, idempotency response 
 пятисекундный tutorial timer одной транзакцией. До реализации проверяемого
 parental-consent flow категория `under13` блокируется fail-closed.
 
+Миграция `000015_care_sync` добавляет монотонную `care_revision`, авторитетный
+cursor времени needs, четыре fixed-point остатка decay и sleeping window.
+`care_operations` хранит hash и исходный результат на
+`(player_id, operation_id)`. Reconcile блокирует player/pet/item rows,
+пересчитывает decay/Weakness и care через ABI 2.3, затем одной транзакцией
+изменяет pet snapshot, списывает предмет с балансирующей ledger-записью и
+сохраняет идемпотентный ответ.
+
 ```sql
 -- Профиль игрока
 CREATE TABLE players (
@@ -524,14 +532,12 @@ GET    /me                                                → PlayerProfile
 GET    /me/pets                                           → Pet[]
 GET    /me/pets/:id                                       → Pet
 POST   /me/pets/:id/activate                              → Pet (set active)
-POST   /me/pets/:id/feed            { itemId }            → Pet (updated needs)
-POST   /me/pets/:id/clean                                 → Pet
-POST   /me/pets/:id/play                                  → Pet
-POST   /me/pets/:id/sleep                                 → Pet
+POST   /sync/commands               { deviceId, commands } → ReconcileResult
 ```
 
 Реализованы `GET /v1/me`, `GET /v1/me/pets`,
-`GET /v1/me/pets/:id` и `POST /v1/me/pets/:id/activate`. Все endpoint'ы
+`GET /v1/me/pets/:id`, `POST /v1/me/pets/:id/activate` и
+`POST /v1/sync/commands`. Все endpoint'ы
 требуют access token и никогда не читают питомца без фильтра по текущему
 player ID. Список детерминированно возвращает активного питомца первым, затем
 сортирует по `(created_at ASC, id ASC)`.
@@ -544,6 +550,12 @@ player ID. Список детерминированно возвращает а
 для точного набора полей `needs` (`u8`, 0–100) и `stats` (`u32`). Decoder
 повторно проверяет тот же контракт fail-closed. Стабильные отказы:
 `profile_not_found`, `pet_not_found`, `pet_id_invalid`.
+
+Offline care принимает `feed`, `clean`, `play`, `sleep` для одного питомца на
+batch и проверяет `If-Match` против первой `baseRevision`. Команды старше 24
+часов или более чем на пять минут из будущего отклоняются; client clock не
+задаёт decay или длительность Sleep. Повтор operation ID с тем же payload не
+повторяет эффект, а с другим payload возвращает `idempotency_conflict`.
 
 ### Training / Dojo
 ```

@@ -10,7 +10,7 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
-Текущая реализация: ABI `2.2.0` (`0x00020200`), schema `1`. Сгенерированный
+Текущая реализация: ABI `2.3.0` (`0x00020300`), schema `1`. Сгенерированный
 artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
 `cbindgen` при каждой сборке.
 
@@ -121,7 +121,9 @@ enum {
 - `gochya_generate_loot_technique_v1`;
 - `gochya_simulate_combat_v1`;
 - `gochya_breed_v1`;
-- `gochya_generate_starter_genome_v1`.
+- `gochya_generate_starter_genome_v1`;
+- `gochya_advance_needs_v1`;
+- `gochya_apply_care_v1`.
 
 Операции со структурными envelope используют `struct_size`/`schema_version`;
 все функции проверяют применимые null, schema, enum range и finite-float
@@ -270,3 +272,28 @@ PostgreSQL-транзакция.
 `gochya_generate_starter_genome_v1`; существующие структуры и symbols не
 изменены. Consumers, которым нужна выдача стартового питомца, проверяют
 `gochya_abi_version() >= 0x00020200`.
+
+## 15. Needs and care V1
+
+`GochyaNeedsStateV1` — 56-byte POD snapshot с четырьмя потребностями, четырьмя
+fixed-point остатками decay, непрерывным `zero_streak_seconds` и boolean-флагами
+sleeping/Weakness. Reserved bytes должны быть нулевыми.
+
+`gochya_advance_needs_v1(input, elapsed_seconds, out_state)` применяет
+детерминированный decay и Weakness. Один вызов принимает не больше 86 400
+секунд; consumer обязан разбить более длинный интервал на chunks, передавая
+полный возвращённый state дальше.
+
+`gochya_apply_care_v1(input, action, item, out_state)` применяет release-scoped
+таблицу эффектов. Числовые ID действий: `0=Feed`, `1=Clean`, `2=Play`,
+`3=Sleep`; предметов: `0=None`, `1=Apple`, `2=Steak`, `3=EnergyDrink`,
+`4=Soap`, `5=Shampoo`. Неизвестные ID возвращают `GOCHYA_INVALID_ARGUMENT`, а
+несовместимые пары — `GOCHYA_DOMAIN_REJECTED`. Инвентарь, время и revision
+остаются за пределами ABI.
+
+### Миграция 2.2.0 → 2.3.0
+
+Изменение добавочное: экспортированы `GochyaNeedsStateV1`,
+`gochya_advance_needs_v1` и `gochya_apply_care_v1`; существующие структуры и
+symbols не изменены. Consumers, которым нужны decay/care, проверяют
+`gochya_abi_version() >= 0x00020300`.

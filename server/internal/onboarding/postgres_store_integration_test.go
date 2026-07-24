@@ -174,7 +174,7 @@ func TestPostgresOnboardingIsPrivateAtomicAndHatchable(t *testing.T) {
 		!starterResponses[0].IncubateUntil.Equal(now.Add(starterIncubation)) {
 		t.Fatalf("starter response = %#v", starterResponses[0])
 	}
-	var eggCount, selectionCount, nullParents, seedLength int
+	var eggCount, selectionCount, nullParents, seedLength, starterApples, starterLedger int
 	var origin string
 	if err := pool.QueryRow(ctx, `SELECT
 		(SELECT COUNT(*) FROM eggs WHERE owner_id=$1),
@@ -182,7 +182,11 @@ func TestPostgresOnboardingIsPrivateAtomicAndHatchable(t *testing.T) {
 		(SELECT COUNT(*) FROM eggs
 		 WHERE owner_id=$1 AND parent_a_id IS NULL AND parent_b_id IS NULL),
 		(SELECT octet_length(breeding_seed) FROM eggs WHERE owner_id=$1),
-		(SELECT origin FROM eggs WHERE owner_id=$1)`,
+		(SELECT origin FROM eggs WHERE owner_id=$1),
+		(SELECT quantity FROM player_items
+		 WHERE player_id=$1 AND item_id='apple'),
+		(SELECT COUNT(*) FROM item_transactions
+		 WHERE player_id=$1 AND reason='starter_kit')`,
 		testPlayerID,
 	).Scan(
 		&eggCount,
@@ -190,6 +194,8 @@ func TestPostgresOnboardingIsPrivateAtomicAndHatchable(t *testing.T) {
 		&nullParents,
 		&seedLength,
 		&origin,
+		&starterApples,
+		&starterLedger,
 	); err != nil {
 		t.Fatalf("inspect starter persistence: %v", err)
 	}
@@ -197,14 +203,18 @@ func TestPostgresOnboardingIsPrivateAtomicAndHatchable(t *testing.T) {
 		selectionCount != 1 ||
 		nullParents != 1 ||
 		seedLength != 8 ||
-		origin != "starter" {
+		origin != "starter" ||
+		starterApples != 3 ||
+		starterLedger != 1 {
 		t.Fatalf(
-			"starter persistence = eggs %d selections %d parents %d seed %d origin %q",
+			"starter persistence = eggs %d selections %d parents %d seed %d origin %q apples %d ledger %d",
 			eggCount,
 			selectionCount,
 			nullParents,
 			seedLength,
 			origin,
+			starterApples,
+			starterLedger,
 		)
 	}
 

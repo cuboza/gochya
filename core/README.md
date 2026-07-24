@@ -9,7 +9,8 @@
 - heart gate, quality score, rarity, adaptive goals, vitality и activity stat gains;
 - стабильные WorkoutKind ID и resonance-таблица тренировок/стихий;
 - MVP-таблица стихий, стартовые геномы, детерминированный casual combat и breeding;
-- versioned C ABI для heart/quality/activity/combat/breeding/onboarding;
+- versioned C ABI 2.3 для heart/quality/activity/combat/breeding/onboarding и
+  детерминированных needs/care;
 - unit, property, invariant, golden и C ABI smoke tests.
 
 Проверка из корня репозитория:

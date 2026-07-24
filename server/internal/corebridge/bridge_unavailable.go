@@ -4,6 +4,10 @@ package corebridge
 
 import "context"
 
+func (NativeEngine) VerifyABI(context.Context) error {
+	return ErrUnavailable
+}
+
 func (NativeEngine) ValidateHeart(context.Context, HeartEvidence) (HeartVerdict, error) {
 	return HeartVerdict{}, ErrUnavailable
 }

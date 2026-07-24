@@ -9,12 +9,11 @@
 ```json
 {
   "operationId": "uuid",
-  "deviceId": "registered-device-id",
   "aggregateType": "pet",
   "aggregateId": "uuid",
   "baseRevision": 42,
   "operationType": "feed",
-  "arguments": { "itemDefId": 1001 },
+  "arguments": { "itemId": "apple" },
   "clientWallTime": "2026-07-22T12:00:00Z",
   "clientMonotonicOffsetMs": 120340,
   "schemaVersion": 1
@@ -27,9 +26,9 @@
 
 | Действие | Offline | Условие reconcile |
 |---|---|---|
-| Feed/clean/play | да | предмет и cooldown подтверждаются сервером |
-| Start/stop sleep | да | duration ограничивается server time window |
-| Strength training | да | сервер пересчитывает награду, действует дневной cap |
+| Feed/clean/play | да | предмет и revision подтверждаются сервером |
+| Start sleep | да | сервер назначает восьмичасовое окно |
+| Strength training | протоколом предусмотрено, endpoint V1 ещё не принимает | сервер пересчитывает награду, действует дневной cap |
 | Просмотр/экипировка локального UI | частично | сервер подтверждает ownership |
 | PvP, breeding, gacha/IAP | нет | требуется онлайн до начала операции |
 | Выдача валюты/предмета | нет | только серверная транзакция |
@@ -51,7 +50,10 @@
 
 - Серверный порядок commit является окончательным.
 - Команда со старой revision не применяется автоматически, если её preconditions могли измениться.
-- Коммутативные care-действия могут быть повторно валидированы на новой revision; расход одного и того же предмета — некоммутативен и один из запросов отклоняется.
+- Care V1 не перебазирует команду автоматически: устаревшая `baseRevision`
+  получает `REJECTED_PRECONDITION`.
+- Расход одного и того же предмета некоммутативен, поэтому один из конкурентных
+  запросов с одной revision применяется, а второй отклоняется.
 - Клиент показывает результат reconcile, если визуально обещанный offline-эффект был изменён или отклонён.
 - Device wall-clock rollback/forward не увеличивает награды и не сокращает cooldown.
 
@@ -65,14 +67,33 @@
 ## 6. API
 
 ```text
-POST /sync/commands
-If-Match: <last-known-player-revision>
+POST /v1/sync/commands
+If-Match: <baseRevision первой команды>
 
 { deviceId, commands[] }
 → { results[], canonicalSnapshots[], newRevision, serverTime }
 ```
 
-Batch имеет ограничение размера. Повтор идентичного batch безопасен; повтор `operationId` с другим payload возвращает `REJECTED_INVALID` и security event.
+Реализованный care V1 принимает 1–100 команд и не больше 256 KiB, требует
+канонический непустой `deviceId` до 128 bytes и разрешает одному batch
+обращаться только к одному питомцу. Команды применяются по порядку, поэтому
+`baseRevision` следующей команды должен учитывать предыдущую `APPLIED`.
+Поддерживаются:
+
+- `feed` с `apple | steak | energy_drink`;
+- `clean` без предмета или с `soap | shampoo`;
+- `play` и `sleep` без предмета.
+
+Валидное окно `clientWallTime` — последние 24 часа с допуском пяти минут в
+будущее. Оно служит только admission check: decay и восьмичасовой Sleep считаются
+от целосекундного server time. Не-Sleep care завершает текущий Sleep.
+
+Повтор идентичного `operationId + payload` безопасен: применённая команда
+возвращается как `ALREADY_APPLIED`, ранее отклонённая сохраняет свой исходный
+статус. Повтор `operationId` с другим payload возвращает
+`REJECTED_INVALID/idempotency_conflict`. Ответ всегда содержит финальный
+canonical snapshot питомца, даже если сохранённый результат retry относится к
+более ранней revision.
 
 ## 7. Definition of Done
 
@@ -80,4 +101,5 @@ Batch имеет ограничение размера. Повтор идент�
 - Два устройства не могут потратить один предмет.
 - Смена timezone и wall clock не меняет начисление.
 - Crash клиента после server commit восстанавливается повторной отправкой.
-- Property tests покрывают reorder, duplicate, partial failure и concurrent devices.
+- Unit и PostgreSQL integration tests покрывают duplicate, partial rejection,
+  конфликт payload, устаревшую revision и concurrent devices.

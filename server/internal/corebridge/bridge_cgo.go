@@ -18,6 +18,15 @@ import (
 
 const schemaVersion = 1
 
+func (NativeEngine) VerifyABI(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	return validateABIVersion(uint32(C.gochya_abi_version()))
+}
+
 func (NativeEngine) ValidateHeart(_ context.Context, heart HeartEvidence) (HeartVerdict, error) {
 	input := heartInput(heart)
 	var output C.GochyaHeartVerdictV1

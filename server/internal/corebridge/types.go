@@ -3,9 +3,23 @@ package corebridge
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 var ErrUnavailable = errors.New("gochya core is unavailable")
+
+const MinimumABIVersion uint32 = 0x0002_0300
+
+func validateABIVersion(version uint32) error {
+	if version>>16 != MinimumABIVersion>>16 || version < MinimumABIVersion {
+		return fmt.Errorf(
+			"incompatible Gochya Core ABI 0x%08x, require 0x%08x through 0x0002ffff",
+			version,
+			MinimumABIVersion,
+		)
+	}
+	return nil
+}
 
 type Metrics struct {
 	PeakAccelMPS2   float32

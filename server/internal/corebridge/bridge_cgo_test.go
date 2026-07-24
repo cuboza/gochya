@@ -11,6 +11,9 @@ import (
 
 func TestNativeEngineCallsRustCore(t *testing.T) {
 	engine := NativeEngine{}
+	if err := engine.VerifyABI(context.Background()); err != nil {
+		t.Fatalf("VerifyABI: %v", err)
+	}
 	heart := HeartEvidence{
 		BaselineBPM: 70,
 		MeanBPM:     90,

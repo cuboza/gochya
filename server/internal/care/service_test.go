@@ -28,15 +28,15 @@ func TestServiceNormalizesCareBatch(t *testing.T) {
 	service := careService(t, store, now)
 	request := validSyncRequest(now)
 	request.Commands = append(request.Commands, CareCommand{
-		OperationID:            "44444444-4444-4444-8444-444444444444",
-		AggregateType:          "pet",
-		AggregateID:            strings.ToUpper(testPetID),
-		BaseRevision:           1,
-		OperationType:          OperationClean,
-		Arguments:              CareArguments{},
-		ClientWallTime:         now.Add(-time.Minute),
+		OperationID:             "44444444-4444-4444-8444-444444444444",
+		AggregateType:           "pet",
+		AggregateID:             strings.ToUpper(testPetID),
+		BaseRevision:            1,
+		OperationType:           OperationClean,
+		Arguments:               CareArguments{},
+		ClientWallTime:          now.Add(-time.Minute),
 		ClientMonotonicOffsetMS: 2_000,
-		SchemaVersion:          SchemaVersionV1,
+		SchemaVersion:           SchemaVersionV1,
 	})
 	response, err := service.Sync(
 		context.Background(),
@@ -150,15 +150,15 @@ func validSyncRequest(now time.Time) SyncRequest {
 	return SyncRequest{
 		DeviceID: "phone-1",
 		Commands: []CareCommand{{
-			OperationID:            testOpID,
-			AggregateType:          "pet",
-			AggregateID:            testPetID,
-			BaseRevision:           0,
-			OperationType:          OperationFeed,
-			Arguments:              CareArguments{ItemID: ItemApple},
-			ClientWallTime:         now.Add(-2 * time.Minute),
+			OperationID:             testOpID,
+			AggregateType:           "pet",
+			AggregateID:             testPetID,
+			BaseRevision:            0,
+			OperationType:           OperationFeed,
+			Arguments:               CareArguments{ItemID: ItemApple},
+			ClientWallTime:          now.Add(-2 * time.Minute),
 			ClientMonotonicOffsetMS: 1_000,
-			SchemaVersion:          SchemaVersionV1,
+			SchemaVersion:           SchemaVersionV1,
 		}},
 	}
 }

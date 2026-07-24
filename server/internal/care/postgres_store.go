@@ -37,7 +37,7 @@ func (s *PostgresStore) Reconcile(
 	input SyncCommit,
 	core corebridge.CareEngine,
 ) (SyncResponse, error) {
-	now := input.Now.UTC().Truncate(time.Microsecond)
+	now := input.Now.UTC().Truncate(time.Second)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SyncResponse{}, fmt.Errorf("begin care reconciliation: %w", err)

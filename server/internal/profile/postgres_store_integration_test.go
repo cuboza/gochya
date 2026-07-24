@@ -344,20 +344,20 @@ func seedProfileData(
 		ctx,
 		`INSERT INTO pets (
 		     id, owner_id, genome, name, stage, level, xp, needs, stats,
-		     generation, is_active, created_at
+		     generation, is_active, created_at, needs_updated_at
 		 ) VALUES
 		     ($1, $4, '{"element":"Earth"}', 'Active', 'baby', 3, 120,
 		      '{"hunger":80,"energy":70,"hygiene":60,"mood":90}',
 		      '{"str":11,"agi":12,"end":13,"foc":14}',
-		      0, TRUE, $7),
+		      0, TRUE, $7, $7),
 		     ($2, $4, '{"element":"Water"}', 'Second', 'teen', 12, 900,
 		      '{"hunger":50,"energy":55,"hygiene":60,"mood":65}',
 		      '{"str":21,"agi":22,"end":23,"foc":24}',
-		      1, FALSE, $6),
+		      1, FALSE, $6, $6),
 		     ($3, $5, '{"element":"Fire"}', 'Foreign', 'adult', 30, 5000,
 		      '{"hunger":90,"energy":90,"hygiene":90,"mood":90}',
 		      '{"str":31,"agi":32,"end":33,"foc":34}',
-		      2, TRUE, $6)`,
+		      2, TRUE, $6, $6)`,
 		integrationActivePet,
 		integrationSecondPet,
 		integrationForeignPet,
