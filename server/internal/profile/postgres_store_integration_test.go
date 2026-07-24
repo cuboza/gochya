@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -20,6 +21,18 @@ const (
 	integrationActivePet   = "22222222-2222-4222-8222-222222222222"
 	integrationSecondPet   = "33333333-3333-4333-8333-333333333333"
 	integrationForeignPet  = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	lineageOwnerID         = "d1000000-0000-4000-8000-000000000001"
+	lineageAncestorOwnerID = "d1000000-0000-4000-8000-000000000002"
+	lineageRootID          = "d2000000-0000-4000-8000-000000000001"
+	lineageParentAID       = "d2000000-0000-4000-8000-000000000002"
+	lineageParentBID       = "d2000000-0000-4000-8000-000000000003"
+	lineageSharedID        = "d2000000-0000-4000-8000-000000000004"
+	lineageGrandAID        = "d2000000-0000-4000-8000-000000000005"
+	lineageGrandBID        = "d2000000-0000-4000-8000-000000000006"
+	lineageDeepAID         = "d2000000-0000-4000-8000-000000000007"
+	lineageDeepBID         = "d2000000-0000-4000-8000-000000000008"
+	lineageOutsideAID      = "d2000000-0000-4000-8000-000000000009"
+	lineageOutsideBID      = "d2000000-0000-4000-8000-000000000010"
 )
 
 func TestPostgresProfilePetsAndAtomicActivation(t *testing.T) {
@@ -221,6 +234,105 @@ func TestNewPostgresStoreRequiresPool(t *testing.T) {
 	}
 }
 
+func TestPostgresProfileLineageIsBoundedPrivateAndFailClosed(t *testing.T) {
+	databaseURL := os.Getenv("GOCHYA_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("GOCHYA_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	pool := profilePostgresTestPool(t, ctx, databaseURL)
+	now := time.Date(2026, time.July, 24, 10, 0, 0, 0, time.UTC)
+	seedLineageData(t, ctx, pool, now)
+	store, err := NewPostgresStore(pool)
+	if err != nil {
+		t.Fatalf("NewPostgresStore: %v", err)
+	}
+
+	lineage, err := store.Lineage(ctx, lineageOwnerID, lineageRootID)
+	if err != nil {
+		t.Fatalf("Lineage: %v", err)
+	}
+	if lineage.RootID != lineageRootID ||
+		lineage.MaxDepth != lineageMaxDepth ||
+		!lineage.Truncated ||
+		len(lineage.Nodes) != 8 {
+		t.Fatalf("lineage = %#v", lineage)
+	}
+	wantIDs := []string{
+		lineageRootID,
+		lineageParentAID,
+		lineageParentBID,
+		lineageSharedID,
+		lineageGrandAID,
+		lineageGrandBID,
+		lineageDeepAID,
+		lineageDeepBID,
+	}
+	wantDepths := []uint8{0, 1, 1, 2, 2, 2, 3, 3}
+	for index, node := range lineage.Nodes {
+		if node.ID != wantIDs[index] ||
+			node.AncestorDepth != wantDepths[index] ||
+			len(node.Genome) == 0 {
+			t.Fatalf("lineage node %d = %#v", index, node)
+		}
+	}
+	if lineage.Nodes[0].MutatedGenes != 5 {
+		t.Fatalf("root mutation mask = %d", lineage.Nodes[0].MutatedGenes)
+	}
+	for _, node := range lineage.Nodes {
+		if node.ID == lineageOutsideAID || node.ID == lineageOutsideBID {
+			t.Fatalf("lineage crossed max depth: %#v", node)
+		}
+	}
+	canonical, err := store.Lineage(
+		ctx,
+		lineageOwnerID,
+		strings.ToUpper(lineageRootID),
+	)
+	if err != nil || canonical.RootID != lineageRootID {
+		t.Fatalf("canonical root = %q, %v", canonical.RootID, err)
+	}
+
+	_, err = store.Lineage(ctx, lineageOwnerID, lineageParentAID)
+	if !errors.Is(err, ErrPetNotFound) {
+		t.Fatalf("foreign-root lineage error = %v", err)
+	}
+
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE pets SET parent_b_id=NULL WHERE id=$1`,
+		lineageRootID,
+	); err != nil {
+		t.Fatalf("break root parent pair: %v", err)
+	}
+	_, err = store.Lineage(ctx, lineageOwnerID, lineageRootID)
+	if !errors.Is(err, ErrLineageInvalid) {
+		t.Fatalf("incomplete-parentage error = %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE pets SET parent_b_id=$2 WHERE id=$1`,
+		lineageRootID,
+		lineageParentBID,
+	); err != nil {
+		t.Fatalf("repair root parent pair: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE pets SET parent_a_id=$2,parent_b_id=$3 WHERE id=$1`,
+		lineageParentAID,
+		lineageRootID,
+		lineageGrandAID,
+	); err != nil {
+		t.Fatalf("create lineage cycle: %v", err)
+	}
+	_, err = store.Lineage(ctx, lineageOwnerID, lineageRootID)
+	if !errors.Is(err, ErrLineageInvalid) {
+		t.Fatalf("cyclic-lineage error = %v", err)
+	}
+}
+
 func TestPetJSONDecodersFailClosed(t *testing.T) {
 	for _, input := range []string{
 		`{}`,
@@ -303,6 +415,8 @@ func profilePostgresTestPool(
 		"../../migrations/000000_base.up.sql",
 		"../../migrations/000006_loadouts.up.sql",
 		"../../migrations/000007_profile_pets_read.up.sql",
+		"../../migrations/000013_breeding.up.sql",
+		"../../migrations/000014_onboarding.up.sql",
 		"../../migrations/000015_care_sync.up.sql",
 	} {
 		migration, err := os.ReadFile(path)
@@ -314,6 +428,95 @@ func profilePostgresTestPool(
 		}
 	}
 	return pool
+}
+
+func seedLineageData(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	now time.Time,
+) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `INSERT INTO players(
+		id,username,auth_method,auth_subject)
+		VALUES
+		($1,'lineage-owner','google','lineage-owner'),
+		($2,'lineage-ancestors','google','lineage-ancestors')`,
+		lineageOwnerID,
+		lineageAncestorOwnerID,
+	); err != nil {
+		t.Fatalf("insert lineage players: %v", err)
+	}
+	ids := []string{
+		lineageRootID,
+		lineageParentAID,
+		lineageParentBID,
+		lineageSharedID,
+		lineageGrandAID,
+		lineageGrandBID,
+		lineageDeepAID,
+		lineageDeepBID,
+		lineageOutsideAID,
+		lineageOutsideBID,
+	}
+	for index, id := range ids {
+		ownerID := lineageAncestorOwnerID
+		if id == lineageRootID {
+			ownerID = lineageOwnerID
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO pets(
+			id,owner_id,genome,name,stage,level,xp,needs,stats,
+			generation,is_active,created_at,needs_updated_at)
+			VALUES($1,$2,$3,$4,'adult',30,0,
+			'{"hunger":100,"energy":100,"hygiene":100,"mood":100}',
+			'{"str":30,"agi":30,"end":30,"foc":30}',
+			$5,FALSE,$6,$6)`,
+			id,
+			ownerID,
+			[]byte(`{"element":"Earth","rarity":"Common"}`),
+			"Lineage "+id[len(id)-2:],
+			index,
+			now.Add(time.Duration(index)*time.Second),
+		); err != nil {
+			t.Fatalf("insert lineage pet %d: %v", index, err)
+		}
+	}
+	parentage := []struct {
+		child   string
+		parentA string
+		parentB string
+	}{
+		{lineageRootID, lineageParentAID, lineageParentBID},
+		{lineageParentAID, lineageSharedID, lineageGrandAID},
+		{lineageParentBID, lineageSharedID, lineageGrandBID},
+		{lineageSharedID, lineageDeepAID, lineageDeepBID},
+		{lineageDeepAID, lineageOutsideAID, lineageOutsideBID},
+	}
+	for index, relation := range parentage {
+		if _, err := pool.Exec(ctx, `UPDATE pets
+			SET parent_a_id=$2,parent_b_id=$3 WHERE id=$1`,
+			relation.child,
+			relation.parentA,
+			relation.parentB,
+		); err != nil {
+			t.Fatalf("connect lineage relation %d: %v", index, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO eggs(
+		id,owner_id,origin,genome,parent_a_id,parent_b_id,incubate_until,
+		breeding_seed,mutated_genes,hatched_at,hatched_pet_id,created_at)
+		VALUES(
+		'd3000000-0000-4000-8000-000000000001',$1,'breeding',$2,$3,$4,$5,
+		decode('0001020304050607','hex'),5,$5,$6,$5)`,
+		lineageOwnerID,
+		[]byte(`{"element":"Earth","rarity":"Common"}`),
+		lineageParentAID,
+		lineageParentBID,
+		now,
+		lineageRootID,
+	); err != nil {
+		t.Fatalf("insert lineage root egg: %v", err)
+	}
 }
 
 func seedProfileData(

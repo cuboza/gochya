@@ -35,7 +35,8 @@ cursor-paginated inventory API; приватный Dojo evidence в него н�
 Игрок может атомарно экипировать пять принадлежащих ему карт, выбрать одну
 signature-позицию и читать текущий server-authoritative loadout с монотонной
 ревизией и идемпотентными повторами.
-Authenticated profile API возвращает только питомцев текущего игрока; смена
+Authenticated profile API возвращает только питомцев текущего игрока; bounded
+lineage-граф раскрывает до трёх поколений без owner/needs/stats предков. Смена
 активного питомца транзакционно синхронизирует существующий loadout и не
 увеличивает его revision при повторе.
 Casual match теперь целиком считается native Rust Core по двум авторитетным

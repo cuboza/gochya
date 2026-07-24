@@ -104,14 +104,18 @@ func (h *HTTPHandler) handlePetRoute(
 	requestID := h.prepareResponse(writer)
 	tail := strings.TrimPrefix(request.URL.Path, "/v1/me/pets/")
 	parts := strings.Split(tail, "/")
-	var activate bool
+	var action string
 	switch {
 	case len(parts) == 1 && parts[0] != "" && request.Method == http.MethodGet:
 	case len(parts) == 2 && parts[0] != "" && parts[1] == "activate" &&
 		request.Method == http.MethodPost:
-		activate = true
+		action = "activate"
+	case len(parts) == 2 && parts[0] != "" && parts[1] == "lineage" &&
+		request.Method == http.MethodGet:
+		action = "lineage"
 	case (len(parts) == 1 && parts[0] != "") ||
-		(len(parts) == 2 && parts[0] != "" && parts[1] == "activate"):
+		(len(parts) == 2 && parts[0] != "" &&
+			(parts[1] == "activate" || parts[1] == "lineage")):
 		h.writeError(writer, requestID, methodNotAllowedError())
 		return
 	default:
@@ -126,7 +130,7 @@ func (h *HTTPHandler) handlePetRoute(
 		h.writeError(writer, requestID, invalidQueryError())
 		return
 	}
-	if activate {
+	if action == "activate" {
 		if err := requireEmptyBody(request); err != nil {
 			h.writeError(writer, requestID, err)
 			return
@@ -137,14 +141,21 @@ func (h *HTTPHandler) handlePetRoute(
 		h.writeError(writer, requestID, err)
 		return
 	}
-	var response Pet
-	if activate {
+	var response any
+	switch action {
+	case "activate":
 		response, err = h.service.ActivatePet(
 			request.Context(),
 			playerID,
 			parts[0],
 		)
-	} else {
+	case "lineage":
+		response, err = h.service.Lineage(
+			request.Context(),
+			playerID,
+			parts[0],
+		)
+	default:
 		response, err = h.service.Pet(request.Context(), playerID, parts[0])
 	}
 	if err != nil {

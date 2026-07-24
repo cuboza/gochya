@@ -54,6 +54,26 @@ type Pet struct {
 	SleepingUntil  *time.Time      `json:"sleepingUntil,omitempty"`
 }
 
+type LineageTree struct {
+	RootID    string        `json:"rootId"`
+	MaxDepth  uint8         `json:"maxDepth"`
+	Truncated bool          `json:"truncated"`
+	Nodes     []LineageNode `json:"nodes"`
+}
+
+type LineageNode struct {
+	ID            string          `json:"id"`
+	Genome        json.RawMessage `json:"genome"`
+	Name          string          `json:"name,omitempty"`
+	Stage         string          `json:"stage"`
+	Level         uint32          `json:"level"`
+	Generation    uint32          `json:"generation"`
+	MutatedGenes  uint16          `json:"mutatedGenes"`
+	ParentAID     string          `json:"parentAId,omitempty"`
+	ParentBID     string          `json:"parentBId,omitempty"`
+	AncestorDepth uint8           `json:"ancestorDepth"`
+}
+
 type ActivatePetCommit struct {
 	PlayerID string
 	PetID    string

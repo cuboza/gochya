@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -130,6 +131,113 @@ func (s *PostgresStore) Pet(
 	return pet, err
 }
 
+const lineageMaxDepth = 3
+
+func (s *PostgresStore) Lineage(
+	ctx context.Context,
+	playerID string,
+	petID string,
+) (LineageTree, error) {
+	rows, err := s.pool.Query(ctx, lineageQuery, playerID, petID, lineageMaxDepth)
+	if err != nil {
+		return LineageTree{}, fmt.Errorf("query pet lineage: %w", err)
+	}
+	defer rows.Close()
+
+	nodesByID := make(map[string]LineageNode)
+	cycleDetected := false
+	rootID := ""
+	for rows.Next() {
+		var (
+			node       LineageNode
+			genomeJSON []byte
+			depth      int
+			cycle      bool
+		)
+		if err := rows.Scan(
+			&node.ID,
+			&genomeJSON,
+			&node.Name,
+			&node.Stage,
+			&node.Level,
+			&node.Generation,
+			&node.MutatedGenes,
+			&node.ParentAID,
+			&node.ParentBID,
+			&depth,
+			&cycle,
+		); err != nil {
+			return LineageTree{}, fmt.Errorf("scan pet lineage: %w", err)
+		}
+		if cycle {
+			cycleDetected = true
+			continue
+		}
+		if depth < 0 || depth > lineageMaxDepth ||
+			(node.ParentAID == "") != (node.ParentBID == "") ||
+			(node.ParentAID != "" && node.ParentAID == node.ParentBID) {
+			return LineageTree{}, ErrLineageInvalid
+		}
+		if err := validateJSONObject(genomeJSON); err != nil {
+			return LineageTree{}, fmt.Errorf(
+				"%w: decode pet %q genome: %v",
+				ErrLineageInvalid,
+				node.ID,
+				err,
+			)
+		}
+		node.Genome = append(json.RawMessage(nil), genomeJSON...)
+		node.AncestorDepth = uint8(depth)
+		if depth == 0 {
+			if rootID != "" && rootID != node.ID {
+				return LineageTree{}, ErrLineageInvalid
+			}
+			rootID = node.ID
+		}
+		existing, ok := nodesByID[node.ID]
+		if !ok || node.AncestorDepth < existing.AncestorDepth {
+			nodesByID[node.ID] = node
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return LineageTree{}, fmt.Errorf("iterate pet lineage: %w", err)
+	}
+	if cycleDetected {
+		return LineageTree{}, ErrLineageInvalid
+	}
+	if len(nodesByID) == 0 {
+		return LineageTree{}, ErrPetNotFound
+	}
+	if rootID == "" {
+		return LineageTree{}, ErrLineageInvalid
+	}
+
+	nodes := make([]LineageNode, 0, len(nodesByID))
+	truncated := false
+	for _, node := range nodesByID {
+		if node.AncestorDepth == lineageMaxDepth {
+			if node.ParentAID != "" {
+				_, parentAIncluded := nodesByID[node.ParentAID]
+				_, parentBIncluded := nodesByID[node.ParentBID]
+				truncated = truncated || !parentAIncluded || !parentBIncluded
+			}
+		}
+		nodes = append(nodes, node)
+	}
+	sort.Slice(nodes, func(first, second int) bool {
+		if nodes[first].AncestorDepth != nodes[second].AncestorDepth {
+			return nodes[first].AncestorDepth < nodes[second].AncestorDepth
+		}
+		return nodes[first].ID < nodes[second].ID
+	})
+	return LineageTree{
+		RootID:    rootID,
+		MaxDepth:  lineageMaxDepth,
+		Truncated: truncated,
+		Nodes:     nodes,
+	}, nil
+}
+
 func (s *PostgresStore) ActivatePet(
 	ctx context.Context,
 	input ActivatePetCommit,
@@ -227,6 +335,46 @@ func (s *PostgresStore) ActivatePet(
 	}
 	return pet, nil
 }
+
+const lineageQuery = `WITH RECURSIVE lineage AS (
+	SELECT
+		p.id,
+		p.parent_a_id,
+		p.parent_b_id,
+		0 AS depth,
+		ARRAY[p.id] AS path,
+		FALSE AS cycle
+	FROM pets p
+	WHERE p.owner_id=$1 AND p.id=$2
+	UNION ALL
+	SELECT
+		parent.id,
+		parent.parent_a_id,
+		parent.parent_b_id,
+		lineage.depth+1,
+		lineage.path || parent.id,
+		parent.id=ANY(lineage.path)
+	FROM lineage
+	JOIN pets parent
+		ON parent.id=lineage.parent_a_id OR parent.id=lineage.parent_b_id
+	WHERE lineage.depth<$3 AND NOT lineage.cycle
+)
+SELECT
+	p.id::TEXT,
+	p.genome,
+	COALESCE(p.name,''),
+	p.stage,
+	p.level,
+	p.generation,
+	COALESCE(egg.mutated_genes,0),
+	COALESCE(p.parent_a_id::TEXT,''),
+	COALESCE(p.parent_b_id::TEXT,''),
+	lineage.depth,
+	lineage.cycle
+FROM lineage
+JOIN pets p ON p.id=lineage.id
+LEFT JOIN eggs egg ON egg.hatched_pet_id=p.id
+ORDER BY lineage.depth ASC,p.id ASC`
 
 const petSelect = `
 		SELECT id::text,

@@ -18,10 +18,12 @@ func TestHTTPReadsProfileAndPetsAndActivates(t *testing.T) {
 		ActivePetID: testPetID,
 	}
 	pet := testPet(testPetID, true)
+	lineage := testLineage()
 	store := &fakeStore{
 		profile:   profile,
 		pets:      []Pet{pet},
 		pet:       pet,
+		lineage:   lineage,
 		activated: pet,
 	}
 	routes := testRoutes(t, store)
@@ -70,6 +72,27 @@ func TestHTTPReadsProfileAndPetsAndActivates(t *testing.T) {
 		t.Fatalf("pet status = %d, body = %s", petRecorder.Code, petRecorder.Body)
 	}
 
+	lineageRecorder := serveAuthenticated(
+		routes,
+		http.MethodGet,
+		"/v1/me/pets/"+testPetID+"/lineage",
+		nil,
+	)
+	if lineageRecorder.Code != http.StatusOK {
+		t.Fatalf(
+			"lineage status = %d, body = %s",
+			lineageRecorder.Code,
+			lineageRecorder.Body,
+		)
+	}
+	var gotLineage LineageTree
+	if err := json.Unmarshal(lineageRecorder.Body.Bytes(), &gotLineage); err != nil {
+		t.Fatalf("decode lineage: %v", err)
+	}
+	if !reflect.DeepEqual(gotLineage, lineage) {
+		t.Fatalf("lineage = %#v", gotLineage)
+	}
+
 	activateRecorder := serveAuthenticated(
 		routes,
 		http.MethodPost,
@@ -90,6 +113,7 @@ func TestHTTPReadsProfileAndPetsAndActivates(t *testing.T) {
 		"profile":  profileRecorder,
 		"pets":     petsRecorder,
 		"pet":      petRecorder,
+		"lineage":  lineageRecorder,
 		"activate": activateRecorder,
 	} {
 		if recorder.Header().Get("Cache-Control") != "private, no-store" ||
@@ -157,6 +181,22 @@ func TestHTTPProfileBoundaries(t *testing.T) {
 			auth:       true,
 			wantStatus: http.StatusMethodNotAllowed,
 			wantCode:   "method_not_allowed",
+		},
+		{
+			name:       "lineage method rejected",
+			method:     http.MethodPost,
+			target:     "/v1/me/pets/" + testPetID + "/lineage",
+			auth:       true,
+			wantStatus: http.StatusMethodNotAllowed,
+			wantCode:   "method_not_allowed",
+		},
+		{
+			name:       "lineage query rejected",
+			method:     http.MethodGet,
+			target:     "/v1/me/pets/" + testPetID + "/lineage?depth=4",
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_query",
 		},
 		{
 			name:       "extra path rejected",

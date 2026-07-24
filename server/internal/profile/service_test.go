@@ -16,10 +16,12 @@ const (
 func TestServiceReadsProfileAndPets(t *testing.T) {
 	profile := PlayerProfile{ID: testPlayerID, Username: "player"}
 	pet := testPet(testPetID, true)
+	lineage := testLineage()
 	store := &fakeStore{
 		profile: profile,
 		pets:    []Pet{pet},
 		pet:     pet,
+		lineage: lineage,
 	}
 	service := testService(t, store)
 
@@ -43,6 +45,17 @@ func TestServiceReadsProfileAndPets(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotPet, pet) {
 		t.Fatalf("pet = %#v", gotPet)
+	}
+	gotLineage, err := service.Lineage(
+		context.Background(),
+		testPlayerID,
+		testPetID,
+	)
+	if err != nil {
+		t.Fatalf("Lineage: %v", err)
+	}
+	if !reflect.DeepEqual(gotLineage, lineage) {
+		t.Fatalf("lineage = %#v", gotLineage)
 	}
 	if store.playerID != testPlayerID || store.petID != testPetID {
 		t.Fatalf("store IDs = %q/%q", store.playerID, store.petID)
@@ -122,6 +135,18 @@ func TestServiceValidatesIdentityAndPetID(t *testing.T) {
 			},
 			code: "pet_id_invalid",
 		},
+		{
+			name: "invalid pet ID on lineage",
+			operation: func() error {
+				_, err := service.Lineage(
+					context.Background(),
+					testPlayerID,
+					"bad",
+				)
+				return err
+			},
+			code: "pet_id_invalid",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -159,6 +184,33 @@ func TestServiceMapsNotFoundAndInternalErrors(t *testing.T) {
 				return err
 			},
 			code: "pet_not_found",
+		},
+		{
+			name:  "lineage root missing",
+			store: &fakeStore{lineageErr: ErrPetNotFound},
+			call: func(service *Service) error {
+				_, err := service.Lineage(
+					context.Background(),
+					testPlayerID,
+					testPetID,
+				)
+				return err
+			},
+			code: "pet_not_found",
+		},
+		{
+			name:  "lineage invalid",
+			store: &fakeStore{lineageErr: ErrLineageInvalid},
+			call: func(service *Service) error {
+				_, err := service.Lineage(
+					context.Background(),
+					testPlayerID,
+					testPetID,
+				)
+				return err
+			},
+			code:  "internal_error",
+			cause: ErrLineageInvalid,
 		},
 		{
 			name:  "activation profile missing",
@@ -208,6 +260,8 @@ type fakeStore struct {
 	listErr     error
 	pet         Pet
 	petErr      error
+	lineage     LineageTree
+	lineageErr  error
 	activated   Pet
 	activateErr error
 	playerID    string
@@ -242,6 +296,17 @@ func (s *fakeStore) Pet(
 	return s.pet, s.petErr
 }
 
+func (s *fakeStore) Lineage(
+	_ context.Context,
+	playerID string,
+	petID string,
+) (LineageTree, error) {
+	s.calls++
+	s.playerID = playerID
+	s.petID = petID
+	return s.lineage, s.lineageErr
+}
+
 func (s *fakeStore) ActivatePet(
 	_ context.Context,
 	input ActivatePetCommit,
@@ -258,6 +323,20 @@ func testService(t *testing.T, store Store) *Service {
 		t.Fatalf("NewService: %v", err)
 	}
 	return service
+}
+
+func testLineage() LineageTree {
+	return LineageTree{
+		RootID:   testPetID,
+		MaxDepth: lineageMaxDepth,
+		Nodes: []LineageNode{{
+			ID:            testPetID,
+			Genome:        []byte(`{"element":"Earth"}`),
+			Stage:         "baby",
+			Level:         1,
+			AncestorDepth: 0,
+		}},
+	}
 }
 
 func testPet(id string, active bool) Pet {

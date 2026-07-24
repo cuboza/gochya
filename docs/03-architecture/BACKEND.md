@@ -545,16 +545,29 @@ fail-closed с `platform_unsupported` до отдельного App Attest enrol
 GET    /me                                                → PlayerProfile
 GET    /me/pets                                           → Pet[]
 GET    /me/pets/:id                                       → Pet
+GET    /me/pets/:id/lineage                               → LineageTree
 POST   /me/pets/:id/activate                              → Pet (set active)
 POST   /sync/commands               { deviceId, commands } → ReconcileResult
 ```
 
 Реализованы `GET /v1/me`, `GET /v1/me/pets`,
-`GET /v1/me/pets/:id`, `POST /v1/me/pets/:id/activate` и
+`GET /v1/me/pets/:id`, `GET /v1/me/pets/:id/lineage`,
+`POST /v1/me/pets/:id/activate` и
 `POST /v1/sync/commands`. Все endpoint'ы
 требуют access token и никогда не читают питомца без фильтра по текущему
 player ID. Список детерминированно возвращает активного питомца первым, затем
 сортирует по `(created_at ASC, id ASC)`.
+
+Lineage возвращается нормализованным графом:
+`{ rootId, maxDepth: 3, truncated, nodes[] }`. Узлы сортируются по
+`(ancestorDepth ASC, id ASC)`, а общий предок присутствует один раз. Узел
+содержит `id`, canonical `genome`, имя, stage/level/generation, mutation mask,
+ссылки на двух родителей и глубину, но не раскрывает владельца, needs, stats
+или другое текущее приватное состояние предка. Корень обязан принадлежать
+JWT-subject; предки читаются максимум на три поколения. `truncated=true`
+означает, что в БД есть более глубокие родители. Цикл, один отсутствующий
+родитель из пары или одинаковые parent IDs считаются повреждением данных и
+отклоняются fail-closed.
 
 Активация естественно идемпотентна: строка игрока сериализует конкурентные
 запросы, повтор уже активного питомца ничего не меняет. При реальной смене
@@ -728,7 +741,6 @@ POST   /breeding/breed       { parentA, parentB, catalysts[] }
                                                             → { eggId, incubateUntil }
 GET    /me/eggs                                          → Egg[]
 POST   /me/eggs/:id/hatch                                → Pet
-GET    /me/pets/:id/lineage                              → LineageTree
 ```
 
 ### Onboarding

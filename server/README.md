@@ -12,8 +12,9 @@
   cursor-pagination, не раскрывая attestation или sensor evidence;
 - `POST /v1/me/techniques/equip` атомарно собирает лоадаут из пяти уникальных
   карт игрока, а `GET /v1/me/loadout` возвращает его текущую ревизию;
-- `GET /v1/me`, `GET /v1/me/pets` и `GET /v1/me/pets/:id` возвращают
-  авторитетный профиль и питомцев, а `POST .../:id/activate` меняет активного;
+- `GET /v1/me`, `GET /v1/me/pets`, `GET /v1/me/pets/:id` и
+  `GET /v1/me/pets/:id/lineage` возвращают авторитетный профиль, питомцев и
+  bounded-родословную, а `POST .../:id/activate` меняет активного;
 - характеристики карты вычисляются Rust Shared Core через статически
   слинкованный cgo ABI — формулы в Go не дублируются;
 - deterministic combat доступен через тот же native Core как компактный
@@ -74,6 +75,10 @@ page size равен 20, максимум — 100. `id`, `ownerId` и `createdAt
 
 `internal/profile` читает профиль и питомцев только в пределах JWT subject.
 Питомцы упорядочены: активный первым, затем `created_at ASC, id ASC`.
+Lineage корневого питомца также требует ownership, но возвращает только
+биологические поля предков без owner/needs/stats. Recursive query ограничен
+тремя поколениями, дедуплицирует общих предков, сообщает `truncated` и
+fail-closed отклоняет цикл или неполную пару родителей.
 Активация блокирует строку игрока, снимает прежний active flag, устанавливает
 новый и в той же транзакции переносит существующий loadout на нового питомца с
 увеличением `revision`. Повторная активация уже активного питомца не меняет
@@ -309,6 +314,7 @@ POST /v1/dojo/submit
 GET  /v1/me
 GET  /v1/me/pets
 GET  /v1/me/pets/:id
+GET  /v1/me/pets/:id/lineage
 POST /v1/me/pets/:id/activate
 POST /v1/matchmaking/queue
 POST /v1/sync/activity

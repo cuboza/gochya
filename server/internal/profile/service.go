@@ -88,6 +88,32 @@ func (s *Service) Pet(
 	return pet, nil
 }
 
+func (s *Service) Lineage(
+	ctx context.Context,
+	playerID string,
+	petID string,
+) (LineageTree, error) {
+	if err := validatePlayerID(playerID); err != nil {
+		return LineageTree{}, err
+	}
+	if err := validatePetID(petID); err != nil {
+		return LineageTree{}, err
+	}
+	lineage, err := s.store.Lineage(ctx, playerID, petID)
+	if errors.Is(err, ErrPetNotFound) {
+		return LineageTree{}, petNotFoundError()
+	}
+	if err != nil {
+		return LineageTree{}, asAPIError(
+			fmt.Errorf("load pet lineage: %w", err),
+		)
+	}
+	if lineage.Nodes == nil {
+		lineage.Nodes = []LineageNode{}
+	}
+	return lineage, nil
+}
+
 func (s *Service) ActivatePet(
 	ctx context.Context,
 	playerID string,
