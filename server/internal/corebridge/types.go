@@ -40,6 +40,50 @@ type TechniqueStats struct {
 	Quality       uint8
 }
 
+const MaxActivityWorkouts = 8
+
+type ActivityWorkout struct {
+	Kind            uint8
+	DurationMinutes uint16
+	Calories        uint16
+}
+
+type ActivitySnapshot struct {
+	Steps                uint32
+	SleepMinutes         uint16
+	SleepQuality         uint8
+	ActiveCalories       uint16
+	Workouts             [MaxActivityWorkouts]ActivityWorkout
+	WorkoutCount         uint8
+	AverageHeartRate     uint16
+	HighHeartZoneMinutes uint16
+	MeditationMinutes    uint16
+	StressLevel          uint8
+	Floors               uint16
+	StandHours           uint8
+	Source               uint8
+	Timestamp            uint64
+	PetElement           uint8
+}
+
+type ActivityGoals struct {
+	Steps          uint32
+	SleepHours     float32
+	ActiveCalories uint16
+}
+
+type ActivityStatGains struct {
+	Strength  int16
+	Agility   int16
+	Endurance int16
+	Focus     int16
+}
+
+type ActivityResult struct {
+	Vitality  uint16
+	StatGains ActivityStatGains
+}
+
 const MaxCombatRounds = 20
 
 type CombatStats struct {
@@ -106,6 +150,15 @@ type Engine interface {
 
 type CombatEngine interface {
 	SimulateCombat(context.Context, CombatMatch, uint64) (CombatResult, error)
+}
+
+type ActivityEngine interface {
+	ComputeActivity(
+		context.Context,
+		ActivitySnapshot,
+		ActivityGoals,
+		uint32,
+	) (ActivityResult, error)
 }
 
 type NativeEngine struct{}

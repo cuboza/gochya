@@ -10,7 +10,7 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
-Текущая реализация: ABI `1.1.0` (`0x00010100`), schema `1`. Сгенерированный
+Текущая реализация: ABI `1.2.0` (`0x00010200`), schema `1`. Сгенерированный
 artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
 `cbindgen` при каждой сборке.
 
@@ -115,6 +115,7 @@ enum {
 - `gochya_validate_heart_v1`;
 - `gochya_quality_score_v1`;
 - `gochya_compute_vitality_v1`;
+- `gochya_compute_activity_v1`;
 - `gochya_derive_technique_v1`;
 - `gochya_simulate_combat_v1`.
 
@@ -126,7 +127,42 @@ harness находится в `core/tests/abi_smoke.c`, а серверный co
 тип, редкость, урон, скорость, stamina cost, crit chance и quality, чтобы сервер
 не дублировал формулы карты.
 
-## 11. Combat V1 wire schema
+## 11. Activity V1 wire schema
+
+`gochya_compute_activity_v1(activity, goals, streak_days, out_result)` атомарно
+вычисляет полный итог синхронизации активности: дневную vitality и gains для
+`STR`, `AGI`, `END`, `FOC`.
+
+- `GochyaWorkoutV1` содержит стабильный числовой kind, длительность в минутах и
+  calories;
+- `GochyaActivityInputV1` содержит полный `DailyActivitySnapshot`, ровно восемь
+  workout slots и элемент питомца, необходимый для resonance;
+- `GochyaDailyGoalsV1` переиспользуется без изменения;
+- `GochyaActivityResultV1` содержит vitality и четыре signed stat gains.
+
+Фиксированные размеры V1:
+
+| Структура | `sizeof` |
+|---|---:|
+| `GochyaWorkoutV1` | 8 |
+| `GochyaActivityInputV1` | 120 |
+| `GochyaActivityResultV1` | 32 |
+
+FFI отклоняет больше восьми тренировок, неизвестные source/element, sleep quality
+или stress level больше 100 и non-finite `sleep_hours`. Неизвестный workout kind
+допустим: его длительность входит в общий объём, но не получает type-specific
+gain или resonance. В gains участвуют только первые три workout slots согласно
+дневному cap доменной формулы.
+
+### Миграция 1.1.0 → 1.2.0
+
+Изменение добавочное: существующие структуры и
+`gochya_compute_vitality_v1` не изменены. Consumers 1.1 могут продолжать
+использовать старый symbol; consumers, которым нужны stat gains, проверяют
+`gochya_abi_version() >= 0x00010200` и переходят на
+`gochya_compute_activity_v1`.
+
+## 12. Combat V1 wire schema
 
 `gochya_simulate_combat_v1(match, seed, out_result)` принимает компактный
 боевой snapshot, а не persistent-типы целиком:

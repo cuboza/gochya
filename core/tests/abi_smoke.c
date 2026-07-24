@@ -6,10 +6,13 @@
 #include <string.h>
 
 int main(void) {
-  assert(gochya_abi_version() == UINT32_C(0x00010100));
+  assert(gochya_abi_version() == UINT32_C(0x00010200));
   assert(sizeof(GochyaPunchMetricsV1) == 40);
   assert(sizeof(GochyaHeartEvidenceV1) == 36);
   assert(sizeof(GochyaHeartVerdictV1) == 28);
+  assert(sizeof(GochyaWorkoutV1) == 8);
+  assert(sizeof(GochyaActivityInputV1) == 120);
+  assert(sizeof(GochyaActivityResultV1) == 32);
   assert(sizeof(GochyaCombatCardV1) == 20);
   assert(sizeof(GochyaCombatLoadoutV1) == 144);
   assert(sizeof(GochyaCombatMatchV1) == 312);
@@ -77,6 +80,45 @@ int main(void) {
   uint16_t vitality = 0;
   assert(gochya_compute_vitality_v1(&activity, &goals, 32, &vitality) == GochyaStatus_Ok);
   assert(vitality == 150);
+
+  GochyaActivityInputV1 activity_input;
+  memset(&activity_input, 0, sizeof(activity_input));
+  activity_input.struct_size = sizeof(activity_input);
+  activity_input.schema_version = 1;
+  activity_input.steps = 10000;
+  activity_input.sleep_minutes = 480;
+  activity_input.active_calories = 500;
+  activity_input.sleep_quality = 100;
+  activity_input.workout_count = 3;
+  activity_input.stress_level = 20;
+  activity_input.source = 0;
+  activity_input.pet_element = 2;
+  activity_input.hr_zone_high_minutes = 10;
+  activity_input.meditation_minutes = 15;
+  activity_input.floors = 10;
+  activity_input.workouts[0].kind = 2;
+  activity_input.workouts[0].duration_minutes = 30;
+  activity_input.workouts[0].calories = 150;
+  activity_input.workouts[1].kind = 0;
+  activity_input.workouts[1].duration_minutes = 30;
+  activity_input.workouts[1].calories = 200;
+  activity_input.workouts[2].kind = 4;
+  activity_input.workouts[2].duration_minutes = 60;
+  activity_input.workouts[2].calories = 150;
+  goals.steps = 10000;
+  goals.sleep_hours = 8.0f;
+  goals.active_calories = 500;
+  GochyaActivityResultV1 activity_result;
+  memset(&activity_result, 0, sizeof(activity_result));
+  assert(gochya_compute_activity_v1(&activity_input, &goals, 10, &activity_result) ==
+         GochyaStatus_Ok);
+  assert(activity_result.struct_size == sizeof(activity_result));
+  assert(activity_result.schema_version == 1);
+  assert(activity_result.vitality == 104);
+  assert(activity_result.stat_str == 7);
+  assert(activity_result.stat_agi == 7);
+  assert(activity_result.stat_end == 12);
+  assert(activity_result.stat_foc == 7);
 
   GochyaCombatMatchV1 match;
   memset(&match, 0, sizeof(match));

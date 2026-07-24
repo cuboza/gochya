@@ -9,13 +9,16 @@ use crate::{
     genome::{Element, Genome},
     heart::validate_heart,
     pet::Stats,
-    synergy::{DailyActivitySnapshot, DailyGoals, compute_vitality},
+    synergy::{
+        DailyActivitySnapshot, DailyGoals, DataSource, MAX_WORKOUTS, WorkoutSummary,
+        compute_stat_gains, compute_vitality,
+    },
     technique::{
         Effect, EffectKind, TechniqueCard, TechniqueType, derive_technique_stats, quality_score,
     },
 };
 
-pub const ABI_VERSION: u32 = 0x0001_0100;
+pub const ABI_VERSION: u32 = 0x0001_0200;
 pub const ABI_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,6 +94,54 @@ pub struct GochyaDailyGoalsV1 {
     pub sleep_hours: f32,
     pub active_calories: u16,
     pub reserved: [u8; 14],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaWorkoutV1 {
+    pub kind: u8,
+    pub reserved0: u8,
+    pub duration_minutes: u16,
+    pub calories: u16,
+    pub reserved: [u8; 2],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaActivityInputV1 {
+    pub struct_size: u32,
+    pub schema_version: u16,
+    pub reserved0: [u8; 2],
+    pub steps: u32,
+    pub sleep_minutes: u16,
+    pub active_calories: u16,
+    pub sleep_quality: u8,
+    pub workout_count: u8,
+    pub stress_level: u8,
+    pub stand_hours: u8,
+    pub source: u8,
+    pub pet_element: u8,
+    pub reserved1: [u8; 2],
+    pub avg_hr: u16,
+    pub hr_zone_high_minutes: u16,
+    pub meditation_minutes: u16,
+    pub floors: u16,
+    pub timestamp: u64,
+    pub workouts: [GochyaWorkoutV1; 8],
+    pub reserved: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaActivityResultV1 {
+    pub struct_size: u32,
+    pub schema_version: u16,
+    pub vitality: u16,
+    pub stat_str: i16,
+    pub stat_agi: i16,
+    pub stat_end: i16,
+    pub stat_foc: i16,
+    pub reserved: [u8; 16],
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -312,6 +363,94 @@ pub extern "C" fn gochya_compute_vitality_v1(
         };
         // SAFETY: output pointer was checked and caller promises it is writable.
         unsafe { *out_vitality = compute_vitality(&snapshot, &domain_goals, streak_days) };
+        GochyaStatus::Ok
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gochya_compute_activity_v1(
+    activity: *const GochyaActivityInputV1,
+    goals: *const GochyaDailyGoalsV1,
+    streak_days: u32,
+    out_result: *mut GochyaActivityResultV1,
+) -> GochyaStatus {
+    catch_status(|| {
+        if activity.is_null() || goals.is_null() || out_result.is_null() {
+            return GochyaStatus::InvalidArgument;
+        }
+        // SAFETY: pointers are non-null and caller promises readable V1 inputs.
+        let (activity, goals) = unsafe { (&*activity, &*goals) };
+        if !valid_header(
+            activity.struct_size,
+            activity.schema_version,
+            size_of::<GochyaActivityInputV1>(),
+        ) || !valid_header(
+            goals.struct_size,
+            goals.schema_version,
+            size_of::<GochyaDailyGoalsV1>(),
+        ) {
+            return GochyaStatus::SchemaMismatch;
+        }
+        if !goals.sleep_hours.is_finite()
+            || usize::from(activity.workout_count) > MAX_WORKOUTS
+            || activity.sleep_quality > 100
+            || activity.stress_level > 100
+        {
+            return GochyaStatus::InvalidArgument;
+        }
+        let Some(source) = data_source_from_u8(activity.source) else {
+            return GochyaStatus::InvalidArgument;
+        };
+        let Some(element) = element_from_u8(activity.pet_element) else {
+            return GochyaStatus::InvalidArgument;
+        };
+        let mut workouts = [WorkoutSummary::default(); MAX_WORKOUTS];
+        for (output, input) in workouts.iter_mut().zip(activity.workouts) {
+            *output = WorkoutSummary {
+                kind: input.kind,
+                duration_min: input.duration_minutes,
+                calories: input.calories,
+            };
+        }
+        let snapshot = DailyActivitySnapshot {
+            steps: activity.steps,
+            sleep_minutes: activity.sleep_minutes,
+            sleep_quality: activity.sleep_quality,
+            active_calories: activity.active_calories,
+            workouts,
+            workout_count: activity.workout_count,
+            avg_hr: activity.avg_hr,
+            hr_zone_high_min: activity.hr_zone_high_minutes,
+            meditation_min: activity.meditation_minutes,
+            stress_level: activity.stress_level,
+            floors: activity.floors,
+            stand_hours: activity.stand_hours,
+            source,
+            timestamp: activity.timestamp,
+        };
+        let domain_goals = DailyGoals {
+            steps: goals.steps,
+            sleep_hours: goals.sleep_hours,
+            cals: goals.active_calories,
+        };
+        let genome = Genome {
+            element,
+            ..Genome::default()
+        };
+        let gains = compute_stat_gains(&snapshot, &domain_goals, &genome, streak_days);
+        // SAFETY: output pointer was checked and caller promises it is writable.
+        unsafe {
+            *out_result = GochyaActivityResultV1 {
+                struct_size: size_u32::<GochyaActivityResultV1>(),
+                schema_version: ABI_SCHEMA_VERSION,
+                vitality: compute_vitality(&snapshot, &domain_goals, streak_days),
+                stat_str: gains.str,
+                stat_agi: gains.agi,
+                stat_end: gains.end,
+                stat_foc: gains.foc,
+                reserved: [0; 16],
+            };
+        }
         GochyaStatus::Ok
     })
 }
@@ -574,6 +713,14 @@ const fn element_from_u8(value: u8) -> Option<Element> {
     }
 }
 
+const fn data_source_from_u8(value: u8) -> Option<DataSource> {
+    match value {
+        0 => Some(DataSource::Watch),
+        1 => Some(DataSource::Phone),
+        _ => None,
+    }
+}
+
 const fn effect_kind_from_u8(value: u8) -> Option<EffectKind> {
     match value {
         0 => Some(EffectKind::None),
@@ -596,11 +743,15 @@ const fn match_mode_from_u8(value: u8) -> Option<MatchMode> {
 }
 
 const _: () = {
+    assert!(MAX_WORKOUTS == 8);
     assert!(size_of::<GochyaPunchMetricsV1>() == 40);
     assert!(size_of::<GochyaHeartEvidenceV1>() == 36);
     assert!(size_of::<GochyaHeartVerdictV1>() == 28);
     assert!(size_of::<GochyaDailyActivityV1>() == 32);
     assert!(size_of::<GochyaDailyGoalsV1>() == 32);
+    assert!(size_of::<GochyaWorkoutV1>() == 8);
+    assert!(size_of::<GochyaActivityInputV1>() == 120);
+    assert!(size_of::<GochyaActivityResultV1>() == 32);
     assert!(size_of::<GochyaTechniqueStatsV1>() == 40);
     assert!(size_of::<GochyaCombatCardV1>() == 20);
     assert!(size_of::<GochyaCombatLoadoutV1>() == 144);
@@ -624,6 +775,56 @@ mod tests {
             confidence: 0.9,
             delta_bpm: 20,
             ..GochyaHeartEvidenceV1::default()
+        }
+    }
+
+    fn ffi_activity() -> GochyaActivityInputV1 {
+        let mut workouts = [GochyaWorkoutV1::default(); MAX_WORKOUTS];
+        workouts[0] = GochyaWorkoutV1 {
+            kind: crate::WorkoutKind::Strength as u8,
+            duration_minutes: 30,
+            calories: 150,
+            ..GochyaWorkoutV1::default()
+        };
+        workouts[1] = GochyaWorkoutV1 {
+            kind: crate::WorkoutKind::Running as u8,
+            duration_minutes: 30,
+            calories: 200,
+            ..GochyaWorkoutV1::default()
+        };
+        workouts[2] = GochyaWorkoutV1 {
+            kind: crate::WorkoutKind::Yoga as u8,
+            duration_minutes: 60,
+            calories: 150,
+            ..GochyaWorkoutV1::default()
+        };
+        GochyaActivityInputV1 {
+            struct_size: size_u32::<GochyaActivityInputV1>(),
+            schema_version: ABI_SCHEMA_VERSION,
+            steps: 10_000,
+            sleep_minutes: 480,
+            active_calories: 500,
+            sleep_quality: 100,
+            workout_count: 3,
+            stress_level: 20,
+            source: DataSource::Watch as u8,
+            pet_element: Element::Earth as u8,
+            hr_zone_high_minutes: 10,
+            meditation_minutes: 15,
+            floors: 10,
+            workouts,
+            ..GochyaActivityInputV1::default()
+        }
+    }
+
+    fn ffi_goals() -> GochyaDailyGoalsV1 {
+        GochyaDailyGoalsV1 {
+            struct_size: size_u32::<GochyaDailyGoalsV1>(),
+            schema_version: ABI_SCHEMA_VERSION,
+            steps: 10_000,
+            sleep_hours: 8.0,
+            active_calories: 500,
+            ..GochyaDailyGoalsV1::default()
         }
     }
 
@@ -716,6 +917,68 @@ mod tests {
         assert_eq!(stats.rarity, 2);
         assert!((stats.base_damage - 1.04).abs() < 0.000_01);
         assert_eq!(stats.quality, 64);
+    }
+
+    #[test]
+    fn abi_computes_complete_activity_result() {
+        let activity = ffi_activity();
+        let goals = ffi_goals();
+        let mut result = GochyaActivityResultV1::default();
+        assert_eq!(
+            gochya_compute_activity_v1(&raw const activity, &raw const goals, 10, &raw mut result,),
+            GochyaStatus::Ok
+        );
+        assert_eq!(result.struct_size, 32);
+        assert_eq!(result.schema_version, ABI_SCHEMA_VERSION);
+        assert_eq!(result.vitality, 104);
+        assert_eq!(
+            (
+                result.stat_str,
+                result.stat_agi,
+                result.stat_end,
+                result.stat_foc
+            ),
+            (7, 7, 12, 7)
+        );
+        assert!(result.reserved.iter().all(|value| *value == 0));
+    }
+
+    #[test]
+    fn abi_activity_rejects_invalid_envelope_and_domain_values() {
+        let goals = ffi_goals();
+        let mut output = GochyaActivityResultV1::default();
+        assert_eq!(
+            gochya_compute_activity_v1(std::ptr::null(), &raw const goals, 10, &raw mut output),
+            GochyaStatus::InvalidArgument
+        );
+
+        let mut activity = ffi_activity();
+        activity.schema_version = 99;
+        assert_eq!(
+            gochya_compute_activity_v1(&raw const activity, &raw const goals, 10, &raw mut output,),
+            GochyaStatus::SchemaMismatch
+        );
+
+        activity = ffi_activity();
+        activity.workout_count = (MAX_WORKOUTS + 1) as u8;
+        assert_eq!(
+            gochya_compute_activity_v1(&raw const activity, &raw const goals, 10, &raw mut output,),
+            GochyaStatus::InvalidArgument
+        );
+
+        activity = ffi_activity();
+        activity.source = 2;
+        assert_eq!(
+            gochya_compute_activity_v1(&raw const activity, &raw const goals, 10, &raw mut output,),
+            GochyaStatus::InvalidArgument
+        );
+
+        activity = ffi_activity();
+        activity.pet_element = u8::MAX;
+        assert_eq!(
+            gochya_compute_activity_v1(&raw const activity, &raw const goals, 10, &raw mut output,),
+            GochyaStatus::InvalidArgument
+        );
     }
 
     #[test]

@@ -24,3 +24,12 @@ func (NativeEngine) SimulateCombat(
 ) (CombatResult, error) {
 	return CombatResult{}, ErrUnavailable
 }
+
+func (NativeEngine) ComputeActivity(
+	context.Context,
+	ActivitySnapshot,
+	ActivityGoals,
+	uint32,
+) (ActivityResult, error) {
+	return ActivityResult{}, ErrUnavailable
+}

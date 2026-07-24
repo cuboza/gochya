@@ -83,6 +83,48 @@ typedef struct GochyaDailyGoalsV1 {
   uint8_t reserved[14];
 } GochyaDailyGoalsV1;
 
+typedef struct GochyaWorkoutV1 {
+  uint8_t kind;
+  uint8_t reserved0;
+  uint16_t duration_minutes;
+  uint16_t calories;
+  uint8_t reserved[2];
+} GochyaWorkoutV1;
+
+typedef struct GochyaActivityInputV1 {
+  uint32_t struct_size;
+  uint16_t schema_version;
+  uint8_t reserved0[2];
+  uint32_t steps;
+  uint16_t sleep_minutes;
+  uint16_t active_calories;
+  uint8_t sleep_quality;
+  uint8_t workout_count;
+  uint8_t stress_level;
+  uint8_t stand_hours;
+  uint8_t source;
+  uint8_t pet_element;
+  uint8_t reserved1[2];
+  uint16_t avg_hr;
+  uint16_t hr_zone_high_minutes;
+  uint16_t meditation_minutes;
+  uint16_t floors;
+  uint64_t timestamp;
+  struct GochyaWorkoutV1 workouts[8];
+  uint8_t reserved[16];
+} GochyaActivityInputV1;
+
+typedef struct GochyaActivityResultV1 {
+  uint32_t struct_size;
+  uint16_t schema_version;
+  uint16_t vitality;
+  int16_t stat_str;
+  int16_t stat_agi;
+  int16_t stat_end;
+  int16_t stat_foc;
+  uint8_t reserved[16];
+} GochyaActivityResultV1;
+
 typedef struct GochyaTechniqueStatsV1 {
   uint32_t struct_size;
   uint16_t schema_version;
@@ -169,6 +211,11 @@ GochyaStatus gochya_compute_vitality_v1(const struct GochyaDailyActivityV1 *acti
                                         const struct GochyaDailyGoalsV1 *goals,
                                         uint32_t streak_days,
                                         uint16_t *out_vitality);
+
+GochyaStatus gochya_compute_activity_v1(const struct GochyaActivityInputV1 *activity,
+                                        const struct GochyaDailyGoalsV1 *goals,
+                                        uint32_t streak_days,
+                                        struct GochyaActivityResultV1 *out_result);
 
 GochyaStatus gochya_derive_technique_v1(const struct GochyaPunchMetricsV1 *metrics,
                                         const struct GochyaHeartEvidenceV1 *heart,

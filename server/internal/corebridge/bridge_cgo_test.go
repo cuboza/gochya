@@ -45,6 +45,61 @@ func TestNativeEngineCallsRustCore(t *testing.T) {
 	}
 }
 
+func TestNativeEngineActivityMatchesRustGoldenFixture(t *testing.T) {
+	engine := NativeEngine{}
+	result, err := engine.ComputeActivity(
+		context.Background(),
+		goldenActivitySnapshot(),
+		ActivityGoals{
+			Steps:          10_000,
+			SleepHours:     8,
+			ActiveCalories: 500,
+		},
+		10,
+	)
+	if err != nil {
+		t.Fatalf("ComputeActivity: %v", err)
+	}
+	expected := ActivityResult{
+		Vitality: 104,
+		StatGains: ActivityStatGains{
+			Strength:  7,
+			Agility:   7,
+			Endurance: 12,
+			Focus:     7,
+		},
+	}
+	if !reflect.DeepEqual(result, expected) {
+		t.Fatalf("activity result = %#v, want %#v", result, expected)
+	}
+}
+
+func TestNativeEngineActivityRejectsInvalidInputAndCancellation(t *testing.T) {
+	engine := NativeEngine{}
+	snapshot := goldenActivitySnapshot()
+	snapshot.Source = 2
+	if _, err := engine.ComputeActivity(
+		context.Background(),
+		snapshot,
+		ActivityGoals{SleepHours: 8},
+		10,
+	); err == nil {
+		t.Fatal("ComputeActivity accepted invalid source")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	snapshot.Source = 0
+	if _, err := engine.ComputeActivity(
+		ctx,
+		snapshot,
+		ActivityGoals{SleepHours: 8},
+		10,
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled ComputeActivity error = %v", err)
+	}
+}
+
 func TestNativeEngineCombatMatchesRustGoldenFixture(t *testing.T) {
 	engine := NativeEngine{}
 	result, err := engine.SimulateCombat(
@@ -130,5 +185,26 @@ func goldenCombatLoadout(
 		PetMood:      100,
 		SignatureIdx: 4,
 		Cards:        [5]CombatCard{card, card, card, card, card},
+	}
+}
+
+func goldenActivitySnapshot() ActivitySnapshot {
+	return ActivitySnapshot{
+		Steps:          10_000,
+		SleepMinutes:   480,
+		SleepQuality:   100,
+		ActiveCalories: 500,
+		Workouts: [MaxActivityWorkouts]ActivityWorkout{
+			{Kind: 2, DurationMinutes: 30, Calories: 150},
+			{Kind: 0, DurationMinutes: 30, Calories: 200},
+			{Kind: 4, DurationMinutes: 60, Calories: 150},
+		},
+		WorkoutCount:         3,
+		HighHeartZoneMinutes: 10,
+		MeditationMinutes:    15,
+		StressLevel:          20,
+		Floors:               10,
+		Source:               0,
+		PetElement:           2,
 	}
 }
