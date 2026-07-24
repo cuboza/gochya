@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gochya/gochya/server/internal/activity"
 	"github.com/gochya/gochya/server/internal/auth"
 	"github.com/gochya/gochya/server/internal/battle"
 	"github.com/gochya/gochya/server/internal/corebridge"
@@ -269,6 +270,25 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create battle HTTP API: %w", err)
 	}
+	activityStore, err := activity.NewPostgresStore(pool)
+	if err != nil {
+		return fmt.Errorf("create activity store: %w", err)
+	}
+	activityService, err := activity.NewService(activity.ServiceConfig{
+		Store: activityStore,
+		Core:  core,
+	})
+	if err != nil {
+		return fmt.Errorf("create activity service: %w", err)
+	}
+	activityAPI, err := activity.NewHTTPHandler(
+		activityService,
+		authenticator,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("create activity HTTP API: %w", err)
+	}
 	service, err := dojo.NewService(dojo.ServiceConfig{
 		Store:                     store,
 		Core:                      core,
@@ -298,6 +318,7 @@ func run() error {
 	application.Handle("/v1/matchmaking/queue", battleRoutes)
 	application.Handle("/v1/match/", battleRoutes)
 	application.Handle("/v1/me/matches/history", battleRoutes)
+	application.Handle("/v1/sync/activity", activityAPI.Routes())
 	application.Handle("/", api.Routes())
 
 	server := &http.Server{

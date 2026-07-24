@@ -139,6 +139,49 @@ func (NativeEngine) ComputeActivity(
 	}, nil
 }
 
+func (NativeEngine) ComputeGoals(
+	ctx context.Context,
+	baseline ActivityBaseline,
+) (ActivityGoals, error) {
+	select {
+	case <-ctx.Done():
+		return ActivityGoals{}, ctx.Err()
+	default:
+	}
+	input := C.GochyaPersonalBaselineV1{}
+	input.struct_size = C.uint32_t(unsafe.Sizeof(input))
+	input.schema_version = schemaVersion
+	input.steps_14d_average = C.uint32_t(baseline.StepsAverage)
+	input.sleep_hours_14d_average = C.float(baseline.SleepHoursAverage)
+	input.active_calories_14d_average = C.uint16_t(baseline.ActiveCaloriesAverage)
+	var output C.GochyaDailyGoalsV1
+	status := C.gochya_compute_goals_v1(&input, &output)
+	if status != C.GochyaStatus_Ok {
+		return ActivityGoals{}, fmt.Errorf(
+			"compute goals: core status %d",
+			int32(status),
+		)
+	}
+	sleepHours := float32(output.sleep_hours)
+	if output.struct_size != C.uint32_t(unsafe.Sizeof(output)) ||
+		output.schema_version != schemaVersion ||
+		output.steps < 2_500 ||
+		output.steps > 18_000 ||
+		output.active_calories < 200 ||
+		output.active_calories > 800 ||
+		math.IsNaN(float64(sleepHours)) ||
+		math.IsInf(float64(sleepHours), 0) ||
+		sleepHours < 6 ||
+		sleepHours > 9 {
+		return ActivityGoals{}, fmt.Errorf("compute goals: invalid core output envelope")
+	}
+	return ActivityGoals{
+		Steps:          uint32(output.steps),
+		SleepHours:     sleepHours,
+		ActiveCalories: uint16(output.active_calories),
+	}, nil
+}
+
 func (NativeEngine) SimulateCombat(
 	ctx context.Context,
 	match CombatMatch,

@@ -33,3 +33,10 @@ func (NativeEngine) ComputeActivity(
 ) (ActivityResult, error) {
 	return ActivityResult{}, ErrUnavailable
 }
+
+func (NativeEngine) ComputeGoals(
+	context.Context,
+	ActivityBaseline,
+) (ActivityGoals, error) {
+	return ActivityGoals{}, ErrUnavailable
+}

@@ -10,15 +10,15 @@ use crate::{
     heart::validate_heart,
     pet::Stats,
     synergy::{
-        DailyActivitySnapshot, DailyGoals, DataSource, MAX_WORKOUTS, WorkoutSummary,
-        compute_stat_gains, compute_vitality,
+        DailyActivitySnapshot, DailyGoals, DataSource, MAX_WORKOUTS, PersonalBaseline,
+        WorkoutSummary, compute_goals, compute_stat_gains, compute_vitality,
     },
     technique::{
         Effect, EffectKind, TechniqueCard, TechniqueType, derive_technique_stats, quality_score,
     },
 };
 
-pub const ABI_VERSION: u32 = 0x0001_0200;
+pub const ABI_VERSION: u32 = 0x0001_0300;
 pub const ABI_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,6 +93,18 @@ pub struct GochyaDailyGoalsV1 {
     pub steps: u32,
     pub sleep_hours: f32,
     pub active_calories: u16,
+    pub reserved: [u8; 14],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaPersonalBaselineV1 {
+    pub struct_size: u32,
+    pub schema_version: u16,
+    pub reserved0: [u8; 2],
+    pub steps_14d_average: u32,
+    pub sleep_hours_14d_average: f32,
+    pub active_calories_14d_average: u16,
     pub reserved: [u8; 14],
 }
 
@@ -363,6 +375,47 @@ pub extern "C" fn gochya_compute_vitality_v1(
         };
         // SAFETY: output pointer was checked and caller promises it is writable.
         unsafe { *out_vitality = compute_vitality(&snapshot, &domain_goals, streak_days) };
+        GochyaStatus::Ok
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gochya_compute_goals_v1(
+    baseline: *const GochyaPersonalBaselineV1,
+    out_goals: *mut GochyaDailyGoalsV1,
+) -> GochyaStatus {
+    catch_status(|| {
+        if baseline.is_null() || out_goals.is_null() {
+            return GochyaStatus::InvalidArgument;
+        }
+        // SAFETY: pointers are non-null and caller promises readable/writable memory.
+        let baseline = unsafe { &*baseline };
+        if !valid_header(
+            baseline.struct_size,
+            baseline.schema_version,
+            size_of::<GochyaPersonalBaselineV1>(),
+        ) {
+            return GochyaStatus::SchemaMismatch;
+        }
+        if !baseline.sleep_hours_14d_average.is_finite() {
+            return GochyaStatus::InvalidArgument;
+        }
+        let goals = compute_goals(&PersonalBaseline {
+            steps_14d_ma: baseline.steps_14d_average,
+            sleep_14d_ma: baseline.sleep_hours_14d_average,
+            cals_14d_ma: baseline.active_calories_14d_average,
+        });
+        // SAFETY: output pointer was checked and caller promises it is writable.
+        unsafe {
+            *out_goals = GochyaDailyGoalsV1 {
+                struct_size: size_u32::<GochyaDailyGoalsV1>(),
+                schema_version: ABI_SCHEMA_VERSION,
+                steps: goals.steps,
+                sleep_hours: goals.sleep_hours,
+                active_calories: goals.cals,
+                ..GochyaDailyGoalsV1::default()
+            };
+        }
         GochyaStatus::Ok
     })
 }
@@ -749,6 +802,7 @@ const _: () = {
     assert!(size_of::<GochyaHeartVerdictV1>() == 28);
     assert!(size_of::<GochyaDailyActivityV1>() == 32);
     assert!(size_of::<GochyaDailyGoalsV1>() == 32);
+    assert!(size_of::<GochyaPersonalBaselineV1>() == 32);
     assert!(size_of::<GochyaWorkoutV1>() == 8);
     assert!(size_of::<GochyaActivityInputV1>() == 120);
     assert!(size_of::<GochyaActivityResultV1>() == 32);
@@ -941,6 +995,29 @@ mod tests {
             (7, 7, 12, 7)
         );
         assert!(result.reserved.iter().all(|value| *value == 0));
+    }
+
+    #[test]
+    fn abi_computes_adaptive_activity_goals() {
+        let baseline = GochyaPersonalBaselineV1 {
+            struct_size: size_u32::<GochyaPersonalBaselineV1>(),
+            schema_version: ABI_SCHEMA_VERSION,
+            steps_14d_average: 8_000,
+            sleep_hours_14d_average: 7.0,
+            active_calories_14d_average: 400,
+            ..GochyaPersonalBaselineV1::default()
+        };
+        let mut goals = GochyaDailyGoalsV1::default();
+        assert_eq!(
+            gochya_compute_goals_v1(&raw const baseline, &raw mut goals),
+            GochyaStatus::Ok
+        );
+        assert_eq!(goals.struct_size, 32);
+        assert_eq!(goals.schema_version, ABI_SCHEMA_VERSION);
+        assert_eq!(goals.steps, 9_200);
+        assert!((goals.sleep_hours - 7.7).abs() < 0.000_01);
+        assert_eq!(goals.active_calories, 460);
+        assert!(goals.reserved.iter().all(|value| *value == 0));
     }
 
     #[test]

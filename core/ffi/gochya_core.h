@@ -83,6 +83,16 @@ typedef struct GochyaDailyGoalsV1 {
   uint8_t reserved[14];
 } GochyaDailyGoalsV1;
 
+typedef struct GochyaPersonalBaselineV1 {
+  uint32_t struct_size;
+  uint16_t schema_version;
+  uint8_t reserved0[2];
+  uint32_t steps_14d_average;
+  float sleep_hours_14d_average;
+  uint16_t active_calories_14d_average;
+  uint8_t reserved[14];
+} GochyaPersonalBaselineV1;
+
 typedef struct GochyaWorkoutV1 {
   uint8_t kind;
   uint8_t reserved0;
@@ -211,6 +221,9 @@ GochyaStatus gochya_compute_vitality_v1(const struct GochyaDailyActivityV1 *acti
                                         const struct GochyaDailyGoalsV1 *goals,
                                         uint32_t streak_days,
                                         uint16_t *out_vitality);
+
+GochyaStatus gochya_compute_goals_v1(const struct GochyaPersonalBaselineV1 *baseline,
+                                     struct GochyaDailyGoalsV1 *out_goals);
 
 GochyaStatus gochya_compute_activity_v1(const struct GochyaActivityInputV1 *activity,
                                         const struct GochyaDailyGoalsV1 *goals,

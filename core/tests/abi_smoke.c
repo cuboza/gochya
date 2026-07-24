@@ -6,10 +6,11 @@
 #include <string.h>
 
 int main(void) {
-  assert(gochya_abi_version() == UINT32_C(0x00010200));
+  assert(gochya_abi_version() == UINT32_C(0x00010300));
   assert(sizeof(GochyaPunchMetricsV1) == 40);
   assert(sizeof(GochyaHeartEvidenceV1) == 36);
   assert(sizeof(GochyaHeartVerdictV1) == 28);
+  assert(sizeof(GochyaPersonalBaselineV1) == 32);
   assert(sizeof(GochyaWorkoutV1) == 8);
   assert(sizeof(GochyaActivityInputV1) == 120);
   assert(sizeof(GochyaActivityResultV1) == 32);
@@ -80,6 +81,21 @@ int main(void) {
   uint16_t vitality = 0;
   assert(gochya_compute_vitality_v1(&activity, &goals, 32, &vitality) == GochyaStatus_Ok);
   assert(vitality == 150);
+
+  GochyaPersonalBaselineV1 baseline;
+  memset(&baseline, 0, sizeof(baseline));
+  baseline.struct_size = sizeof(baseline);
+  baseline.schema_version = 1;
+  baseline.steps_14d_average = 8000;
+  baseline.sleep_hours_14d_average = 7.0f;
+  baseline.active_calories_14d_average = 400;
+  GochyaDailyGoalsV1 adaptive_goals;
+  memset(&adaptive_goals, 0, sizeof(adaptive_goals));
+  assert(gochya_compute_goals_v1(&baseline, &adaptive_goals) == GochyaStatus_Ok);
+  assert(adaptive_goals.struct_size == sizeof(adaptive_goals));
+  assert(adaptive_goals.steps == 9200);
+  assert(fabsf(adaptive_goals.sleep_hours - 7.7f) < 0.00001f);
+  assert(adaptive_goals.active_calories == 460);
 
   GochyaActivityInputV1 activity_input;
   memset(&activity_input, 0, sizeof(activity_input));

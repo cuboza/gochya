@@ -10,7 +10,7 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
-Текущая реализация: ABI `1.2.0` (`0x00010200`), schema `1`. Сгенерированный
+Текущая реализация: ABI `1.3.0` (`0x00010300`), schema `1`. Сгенерированный
 artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
 `cbindgen` при каждой сборке.
 
@@ -115,6 +115,7 @@ enum {
 - `gochya_validate_heart_v1`;
 - `gochya_quality_score_v1`;
 - `gochya_compute_vitality_v1`;
+- `gochya_compute_goals_v1`;
 - `gochya_compute_activity_v1`;
 - `gochya_derive_technique_v1`;
 - `gochya_simulate_combat_v1`.
@@ -133,6 +134,9 @@ harness находится в `core/tests/abi_smoke.c`, а серверный co
 вычисляет полный итог синхронизации активности: дневную vitality и gains для
 `STR`, `AGI`, `END`, `FOC`.
 
+`gochya_compute_goals_v1(baseline, out_goals)` рассчитывает адаптивные goals из
+14-дневного baseline той же формулой Core, не оставляя её копию в consumer.
+
 - `GochyaWorkoutV1` содержит стабильный числовой kind, длительность в минутах и
   calories;
 - `GochyaActivityInputV1` содержит полный `DailyActivitySnapshot`, ровно восемь
@@ -145,6 +149,7 @@ harness находится в `core/tests/abi_smoke.c`, а серверный co
 | Структура | `sizeof` |
 |---|---:|
 | `GochyaWorkoutV1` | 8 |
+| `GochyaPersonalBaselineV1` | 32 |
 | `GochyaActivityInputV1` | 120 |
 | `GochyaActivityResultV1` | 32 |
 
@@ -161,6 +166,12 @@ gain или resonance. В gains участвуют только первые т�
 использовать старый symbol; consumers, которым нужны stat gains, проверяют
 `gochya_abi_version() >= 0x00010200` и переходят на
 `gochya_compute_activity_v1`.
+
+### Миграция 1.2.0 → 1.3.0
+
+Добавлены `GochyaPersonalBaselineV1` и `gochya_compute_goals_v1`; существующие
+activity payloads и функции не изменены. Серверу с adaptive goals требуется
+`gochya_abi_version() >= 0x00010300`.
 
 ## 12. Combat V1 wire schema
 

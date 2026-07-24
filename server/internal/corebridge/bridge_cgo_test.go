@@ -47,6 +47,20 @@ func TestNativeEngineCallsRustCore(t *testing.T) {
 
 func TestNativeEngineActivityMatchesRustGoldenFixture(t *testing.T) {
 	engine := NativeEngine{}
+	goals, err := engine.ComputeGoals(context.Background(), ActivityBaseline{
+		StepsAverage:          8_000,
+		SleepHoursAverage:     7,
+		ActiveCaloriesAverage: 400,
+	})
+	if err != nil {
+		t.Fatalf("ComputeGoals: %v", err)
+	}
+	if goals.Steps != 9_200 ||
+		goals.ActiveCalories != 460 ||
+		goals.SleepHours < 7.69999 ||
+		goals.SleepHours > 7.70001 {
+		t.Fatalf("activity goals = %#v", goals)
+	}
 	result, err := engine.ComputeActivity(
 		context.Background(),
 		goldenActivitySnapshot(),

@@ -72,6 +72,12 @@ type ActivityGoals struct {
 	ActiveCalories uint16
 }
 
+type ActivityBaseline struct {
+	StepsAverage          uint32
+	SleepHoursAverage     float32
+	ActiveCaloriesAverage uint16
+}
+
 type ActivityStatGains struct {
 	Strength  int16
 	Agility   int16
@@ -153,6 +159,7 @@ type CombatEngine interface {
 }
 
 type ActivityEngine interface {
+	ComputeGoals(context.Context, ActivityBaseline) (ActivityGoals, error)
 	ComputeActivity(
 		context.Context,
 		ActivitySnapshot,

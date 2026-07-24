@@ -709,6 +709,24 @@ POST   /sync/activity         { snapshot, sourceMetadata } → { vitality, statG
 GET    /me/activity/week                                   → DailyActivity[]
 ```
 
+Реализованный `POST /v1/sync/activity` принимает snapshot schema `1`:
+`timestampMillis`, steps/sleep/calories, quality/stress, агрегаты HR, floors,
+stand hours и до восьми workouts `{kind,durationMinutes,calories}`. Поле
+`sourceMetadata` allowlisted и нормализуется, но не считается подписью или
+attestation. Ответ дополнительно возвращает `date`, adaptive `goals`,
+`vitalityDelta`, `statGainDeltas` и `snapshotAccepted`, чтобы клиент отличал
+дневной total от реально применённой этой попыткой дельты.
+
+Текущий production slice принимает только текущий день в сохранённой timezone
+игрока. PostgreSQL player lock сериализует конкурентные sync; SHA-256 fingerprint
+повторного snapshot делает его no-op до вызова Core. Первый sync фиксирует
+активного питомца на весь день. Adaptive goals рассчитываются Core по среднему
+предыдущих 14 дней. Vitality применяет только положительную дельту и пишет
+двухстороннюю ledger-запись; коррекция вниз её не отзывает. Stat gains
+reconcile'ятся до нового дневного total, причём фактически применённая отрицательная
+дельта ограничивается нулём pet stat и сохраняется отдельно для корректного
+следующего пересчёта.
+
 > ⚠️ Поле называлось `deviceSig`, что подразумевало криптографическую подпись.
 > Её не существует: HealthKit и Samsung Health подписанных агрегатов сторонним
 > приложениям не выдают (`ANTICHEAT.md` §5.5). Передаётся строка-источник

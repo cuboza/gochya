@@ -22,6 +22,9 @@
   серверным loadout, `GET /v1/match/:id` отдаёт сохранённый replay участнику,
   `GET /v1/me/matches/history` — его последние результаты, а
   `POST /v1/match/:id/confirm` один раз начисляет авторитетную награду;
+- `POST /v1/sync/activity` принимает нормализованный дневной health snapshot,
+  вычисляет adaptive goals, vitality и stat gains через Rust Core и применяет
+  только ещё не начисленную дельту;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -75,6 +78,16 @@ Core второй раз. Читать результат могут тольк�
 confirm возвращают одну запись из `match_confirmations`. Миграция `000009`
 фиксирует награду, двухстороннюю ledger-запись и wallet projection в одной
 транзакции.
+
+`internal/activity` нормализует allowlisted `sourceMetadata`, фиксирует SHA-256
+fingerprint snapshot и сериализует sync блокировкой player row. День определяется
+в сохранённой timezone игрока; текущий срез принимает только текущий local day.
+Goals считаются Rust Core из среднего предыдущих 14 дней. Первый sync дня
+фиксирует активного питомца, поэтому его смена в середине дня не переносит
+оставшуюся дельту на другого питомца. Vitality никогда не отзывается при
+коррекции snapshot вниз; stat gains, включая отрицательный FOC, приводятся к
+новому дневному total с защитой pet stat от выхода ниже нуля. Миграция `000010`
+хранит canonical snapshot, fingerprint, totals и фактически применённые gains.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и
@@ -212,6 +225,7 @@ GET  /v1/me/pets
 GET  /v1/me/pets/:id
 POST /v1/me/pets/:id/activate
 POST /v1/matchmaking/queue
+POST /v1/sync/activity
 GET  /v1/match/:id
 POST /v1/match/:id/confirm
 GET  /v1/me/matches/history?limit=
