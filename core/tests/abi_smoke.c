@@ -6,10 +6,15 @@
 #include <string.h>
 
 int main(void) {
-  assert(gochya_abi_version() == UINT32_C(0x00010000));
+  assert(gochya_abi_version() == UINT32_C(0x00010100));
   assert(sizeof(GochyaPunchMetricsV1) == 40);
   assert(sizeof(GochyaHeartEvidenceV1) == 36);
   assert(sizeof(GochyaHeartVerdictV1) == 28);
+  assert(sizeof(GochyaCombatCardV1) == 20);
+  assert(sizeof(GochyaCombatLoadoutV1) == 144);
+  assert(sizeof(GochyaCombatMatchV1) == 312);
+  assert(sizeof(GochyaCombatRoundV1) == 12);
+  assert(sizeof(GochyaCombatResultV1) == 280);
 
   GochyaHeartEvidenceV1 heart;
   memset(&heart, 0, sizeof(heart));
@@ -72,6 +77,52 @@ int main(void) {
   uint16_t vitality = 0;
   assert(gochya_compute_vitality_v1(&activity, &goals, 32, &vitality) == GochyaStatus_Ok);
   assert(vitality == 150);
+
+  GochyaCombatMatchV1 match;
+  memset(&match, 0, sizeof(match));
+  match.struct_size = sizeof(match);
+  match.schema_version = 1;
+  match.mode = 0;
+  match.loadout_a.stat_str = 30;
+  match.loadout_a.stat_agi = 30;
+  match.loadout_a.stat_end = 30;
+  match.loadout_a.stat_foc = 30;
+  match.loadout_a.element = 0;
+  match.loadout_a.tech_affinity = 0;
+  match.loadout_a.pet_mood = 100;
+  match.loadout_a.signature_idx = 4;
+  match.loadout_b.stat_str = 30;
+  match.loadout_b.stat_agi = 30;
+  match.loadout_b.stat_end = 30;
+  match.loadout_b.stat_foc = 30;
+  match.loadout_b.element = 2;
+  match.loadout_b.tech_affinity = 0;
+  match.loadout_b.pet_mood = 100;
+  match.loadout_b.signature_idx = 4;
+  for (size_t index = 0; index < 5; index++) {
+    match.loadout_a.cards[index].base_damage = 260.0f;
+    match.loadout_a.cards[index].speed = 70.0f;
+    match.loadout_a.cards[index].stamina_cost = 10;
+    match.loadout_b.cards[index].base_damage = 240.0f;
+    match.loadout_b.cards[index].speed = 60.0f;
+    match.loadout_b.cards[index].stamina_cost = 10;
+  }
+  GochyaCombatResultV1 combat;
+  memset(&combat, 0, sizeof(combat));
+  assert(gochya_simulate_combat_v1(&match, 42, &combat) == GochyaStatus_Ok);
+  assert(combat.struct_size == sizeof(combat));
+  assert(combat.schema_version == 1);
+  assert(combat.winner == 0);
+  assert(combat.round_count == 3);
+  assert(combat.final_hp_a == 950);
+  assert(combat.final_hp_b == 0);
+  assert(combat.seed == 42);
+  assert(combat.rounds[0].damage_a_to_b == 437);
+  assert(combat.rounds[0].damage_b_to_a == 169);
+  assert(combat.rounds[1].damage_a_to_b == 453);
+  assert(combat.rounds[1].damage_b_to_a == 181);
+  assert(combat.rounds[2].damage_a_to_b == 413);
+  assert(combat.rounds[2].damage_b_to_a == 0);
 
   return 0;
 }

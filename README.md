@@ -8,7 +8,9 @@
 
 Sprint 0 начат: в [`core/`](./core/) находится первый рабочий срез Rust Shared
 Core с heart gate, расчётом Technique Card, vitality, детерминированным casual
-combat, golden/property-тестами и versioned C ABI. В [`server/`](./server/)
+combat, golden/property-тестами и versioned C ABI. Combat теперь также доступен
+серверу через компактный `MatchV1 → MatchResultV1` cgo-контракт без дублирования
+формул. В [`server/`](./server/)
 реализован первый Go-срез Dojo: preflight, подписанный submit, attestation
 boundary, replay/idempotency/rate-limit, транзакционный PostgreSQL Store и
 настоящий cgo-вызов Rust Core. HTTP-boundary поддерживает проверяемые

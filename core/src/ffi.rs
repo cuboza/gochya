@@ -5,12 +5,17 @@ use std::{mem::size_of, panic};
 
 use crate::{
     HeartRateEvidence, PunchMetrics,
+    combat::{GearSummary, Loadout, Match, MatchMode, simulate_combat},
+    genome::{Element, Genome},
     heart::validate_heart,
+    pet::Stats,
     synergy::{DailyActivitySnapshot, DailyGoals, compute_vitality},
-    technique::{TechniqueType, derive_technique_stats, quality_score},
+    technique::{
+        Effect, EffectKind, TechniqueCard, TechniqueType, derive_technique_stats, quality_score,
+    },
 };
 
-pub const ABI_VERSION: u32 = 0x0001_0000;
+pub const ABI_VERSION: u32 = 0x0001_0100;
 pub const ABI_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,6 +106,75 @@ pub struct GochyaTechniqueStatsV1 {
     pub stamina_cost: u16,
     pub quality: u8,
     pub reserved0: u8,
+    pub reserved: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaCombatCardV1 {
+    pub base_damage: f32,
+    pub speed: f32,
+    pub crit_chance: f32,
+    pub effect_value: f32,
+    pub stamina_cost: u16,
+    pub technique_type: u8,
+    pub effect_kind: u8,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaCombatLoadoutV1 {
+    pub stat_str: u32,
+    pub stat_agi: u32,
+    pub stat_end: u32,
+    pub stat_foc: u32,
+    pub gear_str_bonus: i16,
+    pub gear_agi_bonus: i16,
+    pub gear_end_bonus: i16,
+    pub gear_foc_bonus: i16,
+    pub element: u8,
+    pub tech_affinity: u8,
+    pub pet_mood: u8,
+    pub signature_idx: u8,
+    pub cards: [GochyaCombatCardV1; 5],
+    pub reserved: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaCombatMatchV1 {
+    pub struct_size: u32,
+    pub schema_version: u16,
+    pub mode: u8,
+    pub reserved0: u8,
+    pub loadout_a: GochyaCombatLoadoutV1,
+    pub loadout_b: GochyaCombatLoadoutV1,
+    pub reserved: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaCombatRoundV1 {
+    pub card_a_idx: u8,
+    pub card_b_idx: u8,
+    pub effect_kind: u8,
+    pub reserved0: u8,
+    pub damage_a_to_b: u16,
+    pub damage_b_to_a: u16,
+    pub effect_value: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaCombatResultV1 {
+    pub struct_size: u32,
+    pub schema_version: u16,
+    pub winner: u8,
+    pub round_count: u8,
+    pub final_hp_a: u16,
+    pub final_hp_b: u16,
+    pub seed: u64,
+    pub rounds: [GochyaCombatRoundV1; 20],
     pub reserved: [u8; 16],
 }
 
@@ -309,6 +383,134 @@ pub extern "C" fn gochya_derive_technique_v1(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn gochya_simulate_combat_v1(
+    match_: *const GochyaCombatMatchV1,
+    seed: u64,
+    out_result: *mut GochyaCombatResultV1,
+) -> GochyaStatus {
+    catch_status(|| {
+        if match_.is_null() || out_result.is_null() {
+            return GochyaStatus::InvalidArgument;
+        }
+        // SAFETY: pointers are non-null and caller promises readable/writable memory.
+        let input = unsafe { &*match_ };
+        if !valid_header(
+            input.struct_size,
+            input.schema_version,
+            size_of::<GochyaCombatMatchV1>(),
+        ) {
+            return GochyaStatus::SchemaMismatch;
+        }
+        let Some(mode) = match_mode_from_u8(input.mode) else {
+            return GochyaStatus::InvalidArgument;
+        };
+        let Some(loadout_a) = combat_loadout_from_ffi(&input.loadout_a) else {
+            return GochyaStatus::InvalidArgument;
+        };
+        let Some(loadout_b) = combat_loadout_from_ffi(&input.loadout_b) else {
+            return GochyaStatus::InvalidArgument;
+        };
+        let result = simulate_combat(
+            &Match {
+                loadout_a,
+                loadout_b,
+                mode,
+            },
+            seed,
+        );
+        let mut rounds = [GochyaCombatRoundV1::default(); 20];
+        for (output, round) in rounds.iter_mut().zip(result.rounds) {
+            *output = GochyaCombatRoundV1 {
+                card_a_idx: round.card_a_idx,
+                card_b_idx: round.card_b_idx,
+                effect_kind: round.effect_triggered.kind as u8,
+                reserved0: 0,
+                damage_a_to_b: round.damage_a_to_b,
+                damage_b_to_a: round.damage_b_to_a,
+                effect_value: round.effect_triggered.value,
+            };
+        }
+        // SAFETY: output pointer was checked and caller promises it is writable.
+        unsafe {
+            *out_result = GochyaCombatResultV1 {
+                struct_size: size_u32::<GochyaCombatResultV1>(),
+                schema_version: ABI_SCHEMA_VERSION,
+                winner: result.winner as u8,
+                round_count: result.round_count,
+                final_hp_a: result.final_hp_a,
+                final_hp_b: result.final_hp_b,
+                seed: result.seed,
+                rounds,
+                reserved: [0; 16],
+            };
+        }
+        GochyaStatus::Ok
+    })
+}
+
+fn combat_loadout_from_ffi(input: &GochyaCombatLoadoutV1) -> Option<Loadout> {
+    if input.pet_mood > 100 || input.signature_idx > 4 {
+        return None;
+    }
+    let element = element_from_u8(input.element)?;
+    let tech_affinity = technique_type_from_u8(input.tech_affinity)?;
+    let mut cards = [TechniqueCard::default(); 5];
+    for (output, card) in cards.iter_mut().zip(input.cards) {
+        let technique_type = technique_type_from_u8(card.technique_type)?;
+        let effect_kind = effect_kind_from_u8(card.effect_kind)?;
+        if !all_finite(&[
+            card.base_damage,
+            card.speed,
+            card.crit_chance,
+            card.effect_value,
+        ]) || card.base_damage < 0.0
+            || card.speed < 0.0
+            || !(0.0..=0.35).contains(&card.crit_chance)
+            || card.effect_value < 0.0
+        {
+            return None;
+        }
+        *output = TechniqueCard {
+            type_: technique_type,
+            element,
+            base_damage: card.base_damage,
+            speed: card.speed,
+            stamina_cost: card.stamina_cost,
+            crit_chance: card.crit_chance,
+            effect: Effect {
+                kind: effect_kind,
+                value: card.effect_value,
+            },
+            ..TechniqueCard::default()
+        };
+    }
+    Some(Loadout {
+        pet_stats: Stats {
+            str: input.stat_str,
+            agi: input.stat_agi,
+            end: input.stat_end,
+            foc: input.stat_foc,
+        },
+        pet_genome: Genome {
+            element,
+            tech_affinity,
+            ..Genome::default()
+        },
+        pet_mood: input.pet_mood,
+        cards,
+        signature_idx: input.signature_idx,
+        gear: GearSummary {
+            str_bonus: input.gear_str_bonus,
+            agi_bonus: input.gear_agi_bonus,
+            end_bonus: input.gear_end_bonus,
+            foc_bonus: input.gear_foc_bonus,
+            element,
+        },
+        ..Loadout::default()
+    })
+}
+
 fn heart_from_ffi(heart: &GochyaHeartEvidenceV1) -> HeartRateEvidence {
     HeartRateEvidence {
         baseline: heart.baseline_bpm,
@@ -349,6 +551,50 @@ const fn technique_type_from_u8(value: u8) -> Option<TechniqueType> {
     }
 }
 
+const fn element_from_u8(value: u8) -> Option<Element> {
+    match value {
+        0 => Some(Element::Fire),
+        1 => Some(Element::Water),
+        2 => Some(Element::Earth),
+        3 => Some(Element::Air),
+        4 => Some(Element::Light),
+        5 => Some(Element::Dark),
+        6 => Some(Element::Arcane),
+        7 => Some(Element::Steam),
+        8 => Some(Element::Magma),
+        9 => Some(Element::Storm),
+        10 => Some(Element::Mud),
+        11 => Some(Element::Smoke),
+        12 => Some(Element::Sand),
+        13 => Some(Element::Eclipse),
+        14 => Some(Element::Inferno),
+        15 => Some(Element::Prism),
+        16 => Some(Element::Crystal),
+        _ => None,
+    }
+}
+
+const fn effect_kind_from_u8(value: u8) -> Option<EffectKind> {
+    match value {
+        0 => Some(EffectKind::None),
+        1 => Some(EffectKind::Stun),
+        2 => Some(EffectKind::Bleed),
+        3 => Some(EffectKind::Crit),
+        4 => Some(EffectKind::Slow),
+        5 => Some(EffectKind::Heal),
+        _ => None,
+    }
+}
+
+const fn match_mode_from_u8(value: u8) -> Option<MatchMode> {
+    match value {
+        0 => Some(MatchMode::Casual),
+        1 => Some(MatchMode::Ranked),
+        2 => Some(MatchMode::Tournament),
+        _ => None,
+    }
+}
+
 const _: () = {
     assert!(size_of::<GochyaPunchMetricsV1>() == 40);
     assert!(size_of::<GochyaHeartEvidenceV1>() == 36);
@@ -356,6 +602,11 @@ const _: () = {
     assert!(size_of::<GochyaDailyActivityV1>() == 32);
     assert!(size_of::<GochyaDailyGoalsV1>() == 32);
     assert!(size_of::<GochyaTechniqueStatsV1>() == 40);
+    assert!(size_of::<GochyaCombatCardV1>() == 20);
+    assert!(size_of::<GochyaCombatLoadoutV1>() == 144);
+    assert!(size_of::<GochyaCombatMatchV1>() == 312);
+    assert!(size_of::<GochyaCombatRoundV1>() == 12);
+    assert!(size_of::<GochyaCombatResultV1>() == 280);
 };
 
 #[cfg(test)]
@@ -373,6 +624,39 @@ mod tests {
             confidence: 0.9,
             delta_bpm: 20,
             ..GochyaHeartEvidenceV1::default()
+        }
+    }
+
+    fn ffi_combat_loadout(element: Element, base_damage: f32, speed: f32) -> GochyaCombatLoadoutV1 {
+        let card = GochyaCombatCardV1 {
+            base_damage,
+            speed,
+            stamina_cost: 10,
+            technique_type: TechniqueType::Jab as u8,
+            ..GochyaCombatCardV1::default()
+        };
+        GochyaCombatLoadoutV1 {
+            stat_str: 30,
+            stat_agi: 30,
+            stat_end: 30,
+            stat_foc: 30,
+            element: element as u8,
+            tech_affinity: TechniqueType::Jab as u8,
+            pet_mood: 100,
+            signature_idx: 4,
+            cards: [card; 5],
+            ..GochyaCombatLoadoutV1::default()
+        }
+    }
+
+    fn ffi_combat_match() -> GochyaCombatMatchV1 {
+        GochyaCombatMatchV1 {
+            struct_size: size_u32::<GochyaCombatMatchV1>(),
+            schema_version: ABI_SCHEMA_VERSION,
+            mode: MatchMode::Casual as u8,
+            loadout_a: ffi_combat_loadout(Element::Fire, 260.0, 70.0),
+            loadout_b: ffi_combat_loadout(Element::Earth, 240.0, 60.0),
+            ..GochyaCombatMatchV1::default()
         }
     }
 
@@ -432,5 +716,67 @@ mod tests {
         assert_eq!(stats.rarity, 2);
         assert!((stats.base_damage - 1.04).abs() < 0.000_01);
         assert_eq!(stats.quality, 64);
+    }
+
+    #[test]
+    fn abi_combat_matches_domain_golden_result() {
+        let match_ = ffi_combat_match();
+        let mut result = GochyaCombatResultV1::default();
+        assert_eq!(
+            gochya_simulate_combat_v1(&raw const match_, 42, &raw mut result),
+            GochyaStatus::Ok
+        );
+        assert_eq!(result.struct_size, 280);
+        assert_eq!(result.schema_version, ABI_SCHEMA_VERSION);
+        assert_eq!(result.winner, 0);
+        assert_eq!(result.round_count, 3);
+        assert_eq!(result.final_hp_a, 950);
+        assert_eq!(result.final_hp_b, 0);
+        assert_eq!(result.seed, 42);
+        assert_eq!(
+            result.rounds[..3]
+                .iter()
+                .map(|round| (round.damage_a_to_b, round.damage_b_to_a))
+                .collect::<Vec<_>>(),
+            vec![(437, 169), (453, 181), (413, 0)]
+        );
+        assert!(result.reserved.iter().all(|value| *value == 0));
+    }
+
+    #[test]
+    fn abi_combat_rejects_invalid_envelope_and_domain_values() {
+        let mut output = GochyaCombatResultV1::default();
+        assert_eq!(
+            gochya_simulate_combat_v1(std::ptr::null(), 42, &raw mut output),
+            GochyaStatus::InvalidArgument
+        );
+
+        let mut match_ = ffi_combat_match();
+        match_.schema_version = 99;
+        assert_eq!(
+            gochya_simulate_combat_v1(&raw const match_, 42, &raw mut output),
+            GochyaStatus::SchemaMismatch
+        );
+
+        match_ = ffi_combat_match();
+        match_.loadout_a.signature_idx = 5;
+        assert_eq!(
+            gochya_simulate_combat_v1(&raw const match_, 42, &raw mut output),
+            GochyaStatus::InvalidArgument
+        );
+
+        match_ = ffi_combat_match();
+        match_.loadout_a.cards[0].base_damage = f32::NAN;
+        assert_eq!(
+            gochya_simulate_combat_v1(&raw const match_, 42, &raw mut output),
+            GochyaStatus::InvalidArgument
+        );
+
+        match_ = ffi_combat_match();
+        match_.loadout_b.element = u8::MAX;
+        assert_eq!(
+            gochya_simulate_combat_v1(&raw const match_, 42, &raw mut output),
+            GochyaStatus::InvalidArgument
+        );
     }
 }

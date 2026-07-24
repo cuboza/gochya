@@ -785,22 +785,22 @@ pub extern "C" fn gochya_core_init() -> CoreError {
 ```
 
 ### Передача больших структур через out-параметр (audit D3/T4)
-Для `MatchResult` (~400+ байт) и других крупных возвратов — **не** возвращать by value (нестандартизированный ABI между ARM64/x86_64). Использовать out-буфер:
+Для `MatchResult` и других крупных возвратов — **не** возвращать by value
+(нестандартизированный ABI между ARM64/x86_64). Реализованный compact combat
+wire contract использует caller-owned out-параметр:
 ```rust
-#[no_mangle]
-pub extern "C" fn gochya_simulate_combat(
-    match_: *const MatchC,
+#[unsafe(no_mangle)]
+pub extern "C" fn gochya_simulate_combat_v1(
+    match_: *const GochyaCombatMatchV1,
     seed: u64,
-    out_result: *mut MatchResultC,    // вызывающий выделяет память
-) -> CoreError {
-    catch_unwind_wrapper(|| {
-        let m = unsafe { &*match_ };
-        let result = simulate_combat(m, seed);
-        unsafe { *out_result = result.to_c(); }
-        CoreError::Ok
-    })
-}
+    out_result: *mut GochyaCombatResultV1,
+) -> GochyaStatus;
 ```
+
+`GochyaCombatMatchV1` имеет `struct_size/schema_version` и содержит только поля,
+которые реально читает боевая формула. Результат содержит фиксированные 20
+round slots и `round_count`; полный layout и размеры нормативно зафиксированы в
+`CORE_ABI.md` §11.
 
 `cbindgen` генерирует `gochya_core.h` → Swift / JNI (Kotlin) consume. Для iOS символьный lookup через `DynamicLibrary.process()` (см. `CLIENT_COMPANION.md §6`).
 

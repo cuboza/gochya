@@ -97,6 +97,65 @@ typedef struct GochyaTechniqueStatsV1 {
   uint8_t reserved[16];
 } GochyaTechniqueStatsV1;
 
+typedef struct GochyaCombatCardV1 {
+  float base_damage;
+  float speed;
+  float crit_chance;
+  float effect_value;
+  uint16_t stamina_cost;
+  uint8_t technique_type;
+  uint8_t effect_kind;
+} GochyaCombatCardV1;
+
+typedef struct GochyaCombatLoadoutV1 {
+  uint32_t stat_str;
+  uint32_t stat_agi;
+  uint32_t stat_end;
+  uint32_t stat_foc;
+  int16_t gear_str_bonus;
+  int16_t gear_agi_bonus;
+  int16_t gear_end_bonus;
+  int16_t gear_foc_bonus;
+  uint8_t element;
+  uint8_t tech_affinity;
+  uint8_t pet_mood;
+  uint8_t signature_idx;
+  struct GochyaCombatCardV1 cards[5];
+  uint8_t reserved[16];
+} GochyaCombatLoadoutV1;
+
+typedef struct GochyaCombatMatchV1 {
+  uint32_t struct_size;
+  uint16_t schema_version;
+  uint8_t mode;
+  uint8_t reserved0;
+  struct GochyaCombatLoadoutV1 loadout_a;
+  struct GochyaCombatLoadoutV1 loadout_b;
+  uint8_t reserved[16];
+} GochyaCombatMatchV1;
+
+typedef struct GochyaCombatRoundV1 {
+  uint8_t card_a_idx;
+  uint8_t card_b_idx;
+  uint8_t effect_kind;
+  uint8_t reserved0;
+  uint16_t damage_a_to_b;
+  uint16_t damage_b_to_a;
+  float effect_value;
+} GochyaCombatRoundV1;
+
+typedef struct GochyaCombatResultV1 {
+  uint32_t struct_size;
+  uint16_t schema_version;
+  uint8_t winner;
+  uint8_t round_count;
+  uint16_t final_hp_a;
+  uint16_t final_hp_b;
+  uint64_t seed;
+  struct GochyaCombatRoundV1 rounds[20];
+  uint8_t reserved[16];
+} GochyaCombatResultV1;
+
 uint32_t gochya_abi_version(void);
 
 GochyaStatus gochya_quality_score_v1(const struct GochyaPunchMetricsV1 *metrics,
@@ -115,5 +174,9 @@ GochyaStatus gochya_derive_technique_v1(const struct GochyaPunchMetricsV1 *metri
                                         const struct GochyaHeartEvidenceV1 *heart,
                                         float tech_level,
                                         struct GochyaTechniqueStatsV1 *out_stats);
+
+GochyaStatus gochya_simulate_combat_v1(const struct GochyaCombatMatchV1 *match_,
+                                       uint64_t seed,
+                                       struct GochyaCombatResultV1 *out_result);
 
 #endif  /* GOCHYA_CORE_H */

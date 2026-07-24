@@ -16,3 +16,11 @@ func (NativeEngine) DeriveTechnique(
 ) (TechniqueStats, error) {
 	return TechniqueStats{}, ErrUnavailable
 }
+
+func (NativeEngine) SimulateCombat(
+	context.Context,
+	CombatMatch,
+	uint64,
+) (CombatResult, error) {
+	return CombatResult{}, ErrUnavailable
+}

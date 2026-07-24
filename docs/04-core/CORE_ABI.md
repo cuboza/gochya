@@ -10,7 +10,7 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
-Текущая реализация: ABI `1.0.0` (`0x00010000`), schema `1`. Сгенерированный
+Текущая реализация: ABI `1.1.0` (`0x00010100`), schema `1`. Сгенерированный
 artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
 `cbindgen` при каждой сборке.
 
@@ -107,21 +107,52 @@ enum {
 - Address/undefined behavior sanitizers проходят native ABI harness.
 - Golden fixture имеет одинаковые bytes на server, iOS phone и Android/Wear OS; watchOS fixture обязателен в Gate 2.
 
-## 10. Реализованный Sprint 0 surface
+## 10. Реализованный surface
 
-Первый стабилизированный ABI-срез экспортирует:
+Стабилизированный ABI-срез экспортирует:
 
 - `gochya_abi_version`;
 - `gochya_validate_heart_v1`;
 - `gochya_quality_score_v1`;
 - `gochya_compute_vitality_v1`;
-- `gochya_derive_technique_v1`.
+- `gochya_derive_technique_v1`;
+- `gochya_simulate_combat_v1`.
 
-Все четыре операции используют versioned структуры со `struct_size`, проверяют null,
+Все операции используют versioned структуры со `struct_size`, проверяют null,
 schema, enum range и finite float values, возвращают `GochyaStatus`, записывают
 результат через caller-owned out-параметр и защищены `catch_unwind`. Нативный C
 harness находится в `core/tests/abi_smoke.c`, а серверный consumer — в
 `server/internal/corebridge`. `gochya_derive_technique_v1` атомарно возвращает
 тип, редкость, урон, скорость, stamina cost, crit chance и quality, чтобы сервер
-не дублировал формулы карты. Combat ABI добавляется после фиксации компактной
-wire-схемы `MatchV1`; Rust golden combat уже зафиксирован.
+не дублировал формулы карты.
+
+## 11. Combat V1 wire schema
+
+`gochya_simulate_combat_v1(match, seed, out_result)` принимает компактный
+боевой snapshot, а не persistent-типы целиком:
+
+- `GochyaCombatCardV1` содержит только используемые формулой card stats и effect;
+- `GochyaCombatLoadoutV1` содержит pet stats, gear bonuses, pet element, affinity, mood,
+  signature index и ровно 5 карт;
+- `GochyaCombatMatchV1` содержит два loadout и mode;
+- `GochyaCombatResultV1` содержит winner, final HP, seed и фиксированный массив
+  из 20 `GochyaCombatRoundV1`.
+
+Идентификаторы игрока/питомца/карт, timestamps, rarity и economy metadata через
+combat ABI не передаются: сервер хранит их в match snapshot, но Rust-формуле они
+не нужны. Это исключает случайную зависимость результата от небоевых полей.
+
+Фиксированные размеры V1:
+
+| Структура | `sizeof` |
+|---|---:|
+| `GochyaCombatCardV1` | 20 |
+| `GochyaCombatLoadoutV1` | 144 |
+| `GochyaCombatMatchV1` | 312 |
+| `GochyaCombatRoundV1` | 12 |
+| `GochyaCombatResultV1` | 280 |
+
+FFI отклоняет mood > 100, signature index > 4, неизвестные mode/element/
+technique/effect enum, non-finite или отрицательные card floats и crit chance
+вне `[0, 0.35]`. Один `MatchV1 + seed` даёт byte-for-byte стабильный replay;
+Rust unit test, C harness и Go/cgo consumer используют один golden vector.
