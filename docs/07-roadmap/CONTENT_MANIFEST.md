@@ -42,6 +42,12 @@
 | PvP | Casual | + Ranked/лиги | + сезоны/чемпионат |
 | Social | нет | друзья/спарринг/лидерборд | сезонные social events |
 
+Текущий backend bootstrap-каталог содержит шесть численно согласованных SKU из
+баланса: Apple, Steak, Energy Drink, Soap, Shampoo и Love Crystal. Он
+разблокирует care/breeding, но не заменяет нормативные три расходника + три
+косметических SKU MVP. Cosmetic item/asset ID, slot и Koins-price должны быть
+зафиксированы здесь до включения в production catalog.
+
 ## Правила приёмки ассетов MVP
 
 - Один утверждённый экспорт должен работать в Flutter и Filament в заданных бюджетах.

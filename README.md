@@ -50,6 +50,10 @@ Rust Core из сохранённого seed и конкурентно выда�
 питомца, 500 Koins и Love Crystal атомарно превращаются в детерминированное
 яйцо Rust Core; mutation/hybrid catalysts расходуются из item ledger, а
 конкурентное вылупление создаёт ровно одного питомца.
+Offline care пересчитывает потребности, Sleep и Weakness через ABI 2.3, а
+идемпотентный command reconcile атомарно расходует предметы. Новый
+server-authoritative Koins-shop публикует согласованные care/breeding SKU,
+проводит покупку через currency/item ledgers и возвращает приватный inventory.
 `server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 Полная текущая цепочка PostgreSQL migrations теперь стартует из пустой schema,

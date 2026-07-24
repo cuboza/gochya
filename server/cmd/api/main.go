@@ -22,6 +22,7 @@ import (
 	"github.com/gochya/gochya/server/internal/inventory"
 	"github.com/gochya/gochya/server/internal/onboarding"
 	"github.com/gochya/gochya/server/internal/profile"
+	"github.com/gochya/gochya/server/internal/shop"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -307,6 +308,18 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create care HTTP API: %w", err)
 	}
+	shopStore, err := shop.NewPostgresStore(pool)
+	if err != nil {
+		return fmt.Errorf("create shop store: %w", err)
+	}
+	shopService, err := shop.NewService(shop.ServiceConfig{Store: shopStore})
+	if err != nil {
+		return fmt.Errorf("create shop service: %w", err)
+	}
+	shopAPI, err := shop.NewHTTPHandler(shopService, authenticator, nil)
+	if err != nil {
+		return fmt.Errorf("create shop HTTP API: %w", err)
+	}
 	breedingStore, err := breeding.NewPostgresStore(pool)
 	if err != nil {
 		return fmt.Errorf("create breeding store: %w", err)
@@ -366,6 +379,10 @@ func run() error {
 	application.Handle("/v1/me/techniques", inventoryRoutes)
 	application.Handle("/v1/me/techniques/equip", inventoryRoutes)
 	application.Handle("/v1/me/loadout", inventoryRoutes)
+	shopRoutes := shopAPI.Routes()
+	application.Handle("/v1/shop", shopRoutes)
+	application.Handle("/v1/shop/buy", shopRoutes)
+	application.Handle("/v1/me/items", shopRoutes)
 	profileRoutes := profileAPI.Routes()
 	application.Handle("/v1/me", profileRoutes)
 	application.Handle("/v1/me/pets", profileRoutes)

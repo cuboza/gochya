@@ -36,6 +36,7 @@ var requiredDatabaseTables = []string{
 	"onboarding_age_gate",
 	"onboarding_starter_selections",
 	"care_operations",
+	"shop_purchases",
 }
 
 func validateDatabaseSchema(ctx context.Context, pool *pgxpool.Pool) error {

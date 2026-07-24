@@ -117,6 +117,12 @@ cursor времени needs, четыре fixed-point остатка decay и sl
 изменяет pet snapshot, списывает предмет с балансирующей ledger-записью и
 сохраняет идемпотентный ответ.
 
+Миграция `000016_shop` добавляет неистекающий idempotency result покупки с
+request hash и зафиксированной ценой. Магазин блокирует player и wallet,
+атомарно списывает Koins, пополняет `player_items` и добавляет балансирующие
+записи в оба ledger. Одинаковый retry не меняет wallet/inventory; конфликт
+payload получает `idempotency_conflict`.
+
 ```sql
 -- Профиль игрока
 CREATE TABLE players (
@@ -731,7 +737,8 @@ POST   /me/onboarding/starter-egg
 ### Shop / Gacha / IAP
 ```
 GET    /shop                                             → Catalog
-POST   /shop/buy              { itemId, currency, qty }  → Transaction
+POST   /shop/buy              { itemId, quantity }       → Purchase
+GET    /me/items                                        → { koins, items[] }
 POST   /gacha/pull            { bannerId, count }        → PullResult[]
 GET    /gacha/banners                                    → Banner[]
 
@@ -742,6 +749,20 @@ POST   /webhooks/apple        ← App Store Server Notifications V2
 POST   /webhooks/google       ← RTDN
 POST   /webhooks/galaxy       ← IAP webhook
 ```
+
+Реализованы `GET /v1/shop`, `POST /v1/shop/buy` и `GET /v1/me/items`.
+Bootstrap-каталог содержит только численно согласованные Koins SKU:
+`apple=20`, `steak=80`, `energy_drink=50`, `soap=30`, `shampoo=60`,
+`love_crystal=200`. Purchase принимает количество 1–100 и UUID
+`Idempotency-Key`; currency и цену клиент не передаёт. Один player lock
+сериализует магазин с care/breeding, а wallet projection, currency ledger,
+item projection, item ledger и сохранённый response изменяются в одной
+PostgreSQL-транзакции. `GET /v1/me/items` возвращает только положительные
+остатки в стабильном порядке `item_id ASC`.
+
+Этот bootstrap-каталог разблокирует текущие care/breeding flows, но не считается
+готовностью косметической части MVP: три cosmetic asset ID и их Koins-цены
+должны быть сначала зафиксированы в `CONTENT_MANIFEST.md`.
 
 ### Seasons / Leaderboards
 ```

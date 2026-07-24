@@ -39,6 +39,8 @@
 - `POST /v1/sync/commands` сверяет offline care с авторитетной revision,
   пересчитывает decay/Weakness через Rust Core и атомарно фиксирует эффект,
   расход предмета и идемпотентный результат;
+- `GET /v1/shop`, `POST /v1/shop/buy` и `GET /v1/me/items` дают стабильный
+  Koins-каталог, атомарную покупку и авторитетный item inventory;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -137,6 +139,16 @@ revision, время и fixed-point остатки decay, sleeping window и
 sleep/awake интервалы суточными chunks ABI 2.3 и назначает Sleep ровно на восемь
 часов. Предмет и его двухсторонняя ledger-запись изменяются в той же транзакции,
 что и canonical pet snapshot.
+
+`internal/shop` публикует шесть уже согласованных Koins SKU: пять care-предметов
+и Love Crystal. Покупка требует UUID `Idempotency-Key` и количество 1–100.
+Миграция `000016` сохраняет request hash, цену на момент покупки и исходный
+response. Player lock сериализует конкурирующие покупки с care/breeding;
+списание wallet, Koins ledger, увеличение `player_items`, item ledger и
+idempotency response фиксируются одной транзакцией. Одинаковый retry возвращает
+исходные `koinsRemaining`/`itemQuantity`, а тот же ключ с другим payload получает
+`409 idempotency_conflict`. Косметические SKU не включены до фиксации их asset
+ID и цен в content manifest.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и
@@ -276,6 +288,9 @@ POST /v1/me/pets/:id/activate
 POST /v1/matchmaking/queue
 POST /v1/sync/activity
 POST /v1/sync/commands
+GET  /v1/shop
+POST /v1/shop/buy
+GET  /v1/me/items
 GET  /v1/me/activity/week
 POST /v1/me/activity/reward
 POST /v1/breeding/breed
