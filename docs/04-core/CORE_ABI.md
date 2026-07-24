@@ -10,7 +10,7 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
-Текущая реализация: ABI `2.0.0` (`0x00020000`), schema `1`. Сгенерированный
+Текущая реализация: ABI `2.1.0` (`0x00020100`), schema `1`. Сгенерированный
 artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
 `cbindgen` при каждой сборке.
 
@@ -119,7 +119,8 @@ enum {
 - `gochya_compute_activity_v1`;
 - `gochya_derive_technique_v1`;
 - `gochya_generate_loot_technique_v1`;
-- `gochya_simulate_combat_v1`.
+- `gochya_simulate_combat_v1`;
+- `gochya_breed_v1`.
 
 Все операции используют versioned структуры со `struct_size`, проверяют null,
 schema, enum range и finite float values, возвращают `GochyaStatus`, записывают
@@ -216,3 +217,30 @@ FFI отклоняет mood > 100, signature index > 4, неизвестные m
 technique/effect enum, non-finite или отрицательные card floats и crit chance
 вне `[0, 0.35]`. Один `MatchV1 + seed` даёт byte-for-byte стабильный replay;
 Rust unit test, C harness и Go/cgo consumer используют один golden vector.
+
+## 13. Breeding V1 wire schema
+
+`gochya_breed_v1(input, seed, out_result)` принимает два полных genome snapshot,
+флаги mutation/hybrid catalyst и вычисленный сервером `inbreeding_coeff`.
+Результат содержит offspring genome, 4–24 часа инкубации и 14-bit mutation
+mask. IDs родителей, wallet, предметы, cooldown и lineage через ABI не
+передаются: они проверяются и фиксируются PostgreSQL-транзакцией.
+
+Фиксированные размеры V1:
+
+| Структура | `sizeof` |
+|---|---:|
+| `GochyaVisualGenesV1` | 16 |
+| `GochyaStatPotentialsV1` | 8 |
+| `GochyaGenomeV1` | 40 |
+| `GochyaBreedInputV1` | 112 |
+| `GochyaBreedResultV1` | 64 |
+
+FFI отклоняет неизвестные enum, потенциалы/насыщенность больше 100, hue больше
+360, boolean не из `0/1` и коэффициент родства больше 3.
+
+### Миграция 2.0.0 → 2.1.0
+
+Изменение добавочное: экспортированы новые breeding POD-структуры и
+`gochya_breed_v1`; существующие структуры и symbols не изменены. Consumers,
+которым нужен breeding, проверяют `gochya_abi_version() >= 0x00020100`.

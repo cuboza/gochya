@@ -46,6 +46,10 @@ idempotent retry не создаёт второй бой. Первая casual-п
 Dojo: после 100 дневной Vitality activity reward детерминированно рассчитывается
 Rust Core из сохранённого seed и конкурентно выдаётся ровно один раз за локальный
 день.
+Бридинг теперь также проходит целиком через сервер: два здоровых взрослых
+питомца, 500 Koins и Love Crystal атомарно превращаются в детерминированное
+яйцо Rust Core; mutation/hybrid catalysts расходуются из item ledger, а
+конкурентное вылупление создаёт ровно одного питомца.
 `server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 Полная текущая цепочка PostgreSQL migrations теперь стартует из пустой schema,

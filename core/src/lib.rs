@@ -18,7 +18,10 @@ pub use combat::{
     ActiveEffects, CombatantState, GearSummary, Loadout, Match, MatchMode, MatchResult, RoundLog,
     Winner, simulate_combat,
 };
-pub use genome::{Ability, Element, Genome, StatPotentials, VisualGenes};
+pub use genome::{
+    Ability, BreedResult, Catalysts, Element, Genome, StatPotentials, VisualGenes, breed,
+    hybrid_of, mutation_chance, stat_cap_penalty,
+};
 pub use heart::{
     HeartFailReason, HeartRateEvidence, HeartVerdict, heart_score, spirit_bonus, validate_heart,
 };

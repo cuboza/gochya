@@ -29,6 +29,10 @@ var requiredDatabaseTables = []string{
 	"transactions",
 	"match_confirmations",
 	"daily_activity",
+	"eggs",
+	"player_items",
+	"item_transactions",
+	"breeding_idempotency",
 }
 
 func validateDatabaseSchema(ctx context.Context, pool *pgxpool.Pool) error {

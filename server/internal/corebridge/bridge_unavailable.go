@@ -48,3 +48,11 @@ func (NativeEngine) ComputeGoals(
 ) (ActivityGoals, error) {
 	return ActivityGoals{}, ErrUnavailable
 }
+
+func (NativeEngine) Breed(
+	context.Context,
+	BreedInput,
+	uint64,
+) (BreedResult, error) {
+	return BreedResult{}, ErrUnavailable
+}

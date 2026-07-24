@@ -26,6 +26,11 @@ include = [
   "GochyaCombatMatchV1",
   "GochyaCombatRoundV1",
   "GochyaCombatResultV1",
+  "GochyaVisualGenesV1",
+  "GochyaStatPotentialsV1",
+  "GochyaGenomeV1",
+  "GochyaBreedInputV1",
+  "GochyaBreedResultV1",
   "gochya_abi_version",
   "gochya_quality_score_v1",
   "gochya_validate_heart_v1",
@@ -35,6 +40,7 @@ include = [
   "gochya_derive_technique_v1",
   "gochya_generate_loot_technique_v1",
   "gochya_simulate_combat_v1",
+  "gochya_breed_v1",
 ]
 item_types = ["enums", "structs", "functions"]
 

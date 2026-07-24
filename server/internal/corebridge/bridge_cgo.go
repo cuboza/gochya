@@ -306,6 +306,109 @@ func (NativeEngine) SimulateCombat(
 	return result, nil
 }
 
+func (NativeEngine) Breed(
+	ctx context.Context,
+	breed BreedInput,
+	seed uint64,
+) (BreedResult, error) {
+	select {
+	case <-ctx.Done():
+		return BreedResult{}, ctx.Err()
+	default:
+	}
+	input := C.GochyaBreedInputV1{}
+	input.struct_size = C.uint32_t(unsafe.Sizeof(input))
+	input.schema_version = schemaVersion
+	if breed.MutationCatalyst {
+		input.mutation_catalyst = 1
+	}
+	if breed.HybridCatalyst {
+		input.hybrid_catalyst = 1
+	}
+	input.inbreeding_coeff = C.uint8_t(breed.InbreedingCoeff)
+	input.parent_a = genomeInput(breed.ParentA)
+	input.parent_b = genomeInput(breed.ParentB)
+
+	var output C.GochyaBreedResultV1
+	status := C.gochya_breed_v1(&input, C.uint64_t(seed), &output)
+	if status != C.GochyaStatus_Ok {
+		return BreedResult{}, fmt.Errorf("breed genomes: core status %d", int32(status))
+	}
+	result := BreedResult{
+		Genome:          genomeOutput(output.genome),
+		IncubationHours: uint8(output.incubation_hours),
+		MutatedGenes:    uint16(output.mutated_genes),
+	}
+	if output.struct_size != C.uint32_t(unsafe.Sizeof(output)) ||
+		output.schema_version != schemaVersion ||
+		result.IncubationHours < 4 ||
+		result.IncubationHours > 24 ||
+		result.MutatedGenes&^uint16(0x3fff) != 0 ||
+		!validGenome(result.Genome) {
+		return BreedResult{}, fmt.Errorf("breed genomes: invalid core output envelope")
+	}
+	return result, nil
+}
+
+func genomeInput(genome Genome) C.GochyaGenomeV1 {
+	input := C.GochyaGenomeV1{}
+	input.visual.body_shape = C.uint8_t(genome.Visual.BodyShape)
+	input.visual.palette_hue = C.uint16_t(genome.Visual.PaletteHue)
+	input.visual.palette_sat = C.uint8_t(genome.Visual.PaletteSat)
+	input.visual.pattern = C.uint8_t(genome.Visual.Pattern)
+	input.visual.size = C.uint8_t(genome.Visual.Size)
+	input.visual.eye_style = C.uint8_t(genome.Visual.EyeStyle)
+	input.visual.aura = C.uint8_t(genome.Visual.Aura)
+	input.stats.str_pot = C.uint8_t(genome.Stats.Strength)
+	input.stats.agi_pot = C.uint8_t(genome.Stats.Agility)
+	input.stats.end_pot = C.uint8_t(genome.Stats.Endurance)
+	input.stats.foc_pot = C.uint8_t(genome.Stats.Focus)
+	input.element = C.uint8_t(genome.Element)
+	input.tech_affinity = C.uint8_t(genome.TechAffinity)
+	input.rarity = C.uint8_t(genome.Rarity)
+	input.ability = C.uint8_t(genome.Ability)
+	input.generation = C.uint32_t(genome.Generation)
+	return input
+}
+
+func genomeOutput(genome C.GochyaGenomeV1) Genome {
+	return Genome{
+		Visual: VisualGenes{
+			BodyShape:  uint8(genome.visual.body_shape),
+			PaletteHue: uint16(genome.visual.palette_hue),
+			PaletteSat: uint8(genome.visual.palette_sat),
+			Pattern:    uint8(genome.visual.pattern),
+			Size:       uint8(genome.visual.size),
+			EyeStyle:   uint8(genome.visual.eye_style),
+			Aura:       uint8(genome.visual.aura),
+		},
+		Stats: StatPotentials{
+			Strength:  uint8(genome.stats.str_pot),
+			Agility:   uint8(genome.stats.agi_pot),
+			Endurance: uint8(genome.stats.end_pot),
+			Focus:     uint8(genome.stats.foc_pot),
+		},
+		Element:      uint8(genome.element),
+		TechAffinity: uint8(genome.tech_affinity),
+		Rarity:       uint8(genome.rarity),
+		Ability:      uint8(genome.ability),
+		Generation:   uint32(genome.generation),
+	}
+}
+
+func validGenome(genome Genome) bool {
+	return genome.Visual.PaletteHue <= 360 &&
+		genome.Visual.PaletteSat <= 100 &&
+		genome.Stats.Strength <= 100 &&
+		genome.Stats.Agility <= 100 &&
+		genome.Stats.Endurance <= 100 &&
+		genome.Stats.Focus <= 100 &&
+		genome.Element <= 16 &&
+		genome.TechAffinity <= 6 &&
+		genome.Rarity <= 5 &&
+		genome.Ability <= 6
+}
+
 func combatLoadoutInput(loadout CombatLoadout) C.GochyaCombatLoadoutV1 {
 	input := C.GochyaCombatLoadoutV1{}
 	input.stat_str = C.uint32_t(loadout.Stats.Strength)

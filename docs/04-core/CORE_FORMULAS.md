@@ -192,7 +192,7 @@ incubationHours(rng) = rng_range(4, 24)
 
 ### 3.3. Наследование генов
 ```
-for each gene g in visual/stats/element/techAffinity/ability:
+for each gene g in visual/element/techAffinity/rarity/ability:
     child.g = random_choice([a.g, b.g])   // 50/50
 
 for each stat_potential sp:
@@ -214,6 +214,11 @@ mutationChance(a, b, catalysts) =
     clamp to [0, 0.30]
 ```
 - Применяется к каждому гену независимо с шансом `mutationChance`.
+- `rarity` наследуется 50/50, но не входит в mutation mask текущего V1.
+- Mutation mask использует биты `0..13`: семь visual genes, четыре
+  stat potentials, element, tech affinity и ability. Hue мутирует в `0..360`,
+  saturation/stat potential — в `0..100`, visual asset index — в `0..7`;
+  новое значение всегда отличается от унаследованного.
 
 ### 3.5. Гибридные стихии
 ```
@@ -229,6 +234,9 @@ HYBRID_TABLE (часть, полная в BALANCE.md):
     ...
 ```
 - Гибрид происходит с шансом `0.20` если родители разных стихий.
+- Текущий MVP content gate материализует только Steam. Остальные результаты
+  `HYBRID_TABLE` определены в Core, но начнут выдаваться после выхода их
+  production assets.
 
 ### 3.6. Штраф поколения
 ```

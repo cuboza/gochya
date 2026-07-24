@@ -94,6 +94,13 @@ nonces, device enrollment, loadout и профильные ограничени�
 применяет всю цепочку к пустой schema, проверяет startup contract и затем
 откатывает её в обратном порядке.
 
+Миграция `000013_breeding` добавляет авторитетные яйца, item inventory/ledger
+и breeding idempotency. Создание яйца блокирует игрока и обоих родителей,
+проверяет adult Lv30, weakness, cooldown и родословную, затем одной транзакцией
+фиксирует server seed, результат Rust Core, оба расхода и cooldown. Вылупление
+блокирует egg row и сохраняет `hatched_pet_id`, поэтому повтор возвращает
+существующего питомца.
+
 ```sql
 -- Профиль игрока
 CREATE TABLE players (
@@ -261,15 +268,19 @@ CREATE TABLE daily_activity (
 -- Яйца (эндпоинты GET /me/eggs, POST /me/eggs/:id/hatch существовали без таблицы)
 CREATE TABLE eggs (
     id              UUID PRIMARY KEY,
-    owner_id        UUID NOT NULL REFERENCES players(id),
-    genome          JSONB NOT NULL,      -- EggGenome из core
-    parent_a_id     UUID REFERENCES pets(id),
-    parent_b_id     UUID REFERENCES pets(id),
+    owner_id        UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    genome          JSONB NOT NULL,      -- BreedResult.genome из core
+    parent_a_id     UUID NOT NULL REFERENCES pets(id),
+    parent_b_id     UUID NOT NULL REFERENCES pets(id),
     incubate_until  TIMESTAMPTZ NOT NULL,
+    breeding_seed   BYTEA NOT NULL,      -- ровно 8 byte, server-generated
+    mutated_genes   INT NOT NULL,        -- 14-bit mask
     hatched_at      TIMESTAMPTZ,         -- NULL = ещё в инкубаторе
+    hatched_pet_id  UUID UNIQUE REFERENCES pets(id),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_eggs_owner ON eggs(owner_id) WHERE hatched_at IS NULL;
+CREATE INDEX idx_eggs_owner_incubating
+    ON eggs(owner_id, created_at, id) WHERE hatched_at IS NULL;
 
 -- Друзья (в MVP-скоупе, таблицы не было)
 CREATE TABLE friendships (

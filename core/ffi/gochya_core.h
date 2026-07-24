@@ -208,6 +208,59 @@ typedef struct GochyaCombatResultV1 {
   uint8_t reserved[16];
 } GochyaCombatResultV1;
 
+typedef struct GochyaVisualGenesV1 {
+  uint8_t body_shape;
+  uint8_t reserved0;
+  uint16_t palette_hue;
+  uint8_t palette_sat;
+  uint8_t pattern;
+  uint8_t size;
+  uint8_t eye_style;
+  uint8_t aura;
+  uint8_t reserved[7];
+} GochyaVisualGenesV1;
+
+typedef struct GochyaStatPotentialsV1 {
+  uint8_t str_pot;
+  uint8_t agi_pot;
+  uint8_t end_pot;
+  uint8_t foc_pot;
+  uint8_t reserved[4];
+} GochyaStatPotentialsV1;
+
+typedef struct GochyaGenomeV1 {
+  struct GochyaVisualGenesV1 visual;
+  struct GochyaStatPotentialsV1 stats;
+  uint8_t element;
+  uint8_t tech_affinity;
+  uint8_t rarity;
+  uint8_t ability;
+  uint32_t generation;
+  uint8_t reserved[8];
+} GochyaGenomeV1;
+
+typedef struct GochyaBreedInputV1 {
+  uint32_t struct_size;
+  uint16_t schema_version;
+  uint8_t mutation_catalyst;
+  uint8_t hybrid_catalyst;
+  uint8_t inbreeding_coeff;
+  uint8_t reserved0[7];
+  struct GochyaGenomeV1 parent_a;
+  struct GochyaGenomeV1 parent_b;
+  uint8_t reserved[16];
+} GochyaBreedInputV1;
+
+typedef struct GochyaBreedResultV1 {
+  uint32_t struct_size;
+  uint16_t schema_version;
+  uint8_t incubation_hours;
+  uint8_t reserved0;
+  struct GochyaGenomeV1 genome;
+  uint16_t mutated_genes;
+  uint8_t reserved[14];
+} GochyaBreedResultV1;
+
 uint32_t gochya_abi_version(void);
 
 GochyaStatus gochya_quality_score_v1(const struct GochyaPunchMetricsV1 *metrics,
@@ -242,5 +295,9 @@ GochyaStatus gochya_generate_loot_technique_v1(uint64_t seed,
 GochyaStatus gochya_simulate_combat_v1(const struct GochyaCombatMatchV1 *match_,
                                        uint64_t seed,
                                        struct GochyaCombatResultV1 *out_result);
+
+GochyaStatus gochya_breed_v1(const struct GochyaBreedInputV1 *input,
+                             uint64_t seed,
+                             struct GochyaBreedResultV1 *out_result);
 
 #endif  /* GOCHYA_CORE_H */

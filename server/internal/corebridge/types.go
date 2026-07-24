@@ -172,4 +172,49 @@ type LootEngine interface {
 	GenerateLootTechnique(context.Context, uint64, uint8) (TechniqueStats, error)
 }
 
+type VisualGenes struct {
+	BodyShape  uint8  `json:"bodyShape"`
+	PaletteHue uint16 `json:"paletteHue"`
+	PaletteSat uint8  `json:"paletteSat"`
+	Pattern    uint8  `json:"pattern"`
+	Size       uint8  `json:"size"`
+	EyeStyle   uint8  `json:"eyeStyle"`
+	Aura       uint8  `json:"aura"`
+}
+
+type StatPotentials struct {
+	Strength  uint8 `json:"strPot"`
+	Agility   uint8 `json:"agiPot"`
+	Endurance uint8 `json:"endPot"`
+	Focus     uint8 `json:"focPot"`
+}
+
+type Genome struct {
+	Visual       VisualGenes    `json:"visual"`
+	Stats        StatPotentials `json:"stats"`
+	Element      uint8          `json:"element"`
+	TechAffinity uint8          `json:"techAffinity"`
+	Rarity       uint8          `json:"rarity"`
+	Ability      uint8          `json:"ability"`
+	Generation   uint32         `json:"generation"`
+}
+
+type BreedInput struct {
+	ParentA          Genome
+	ParentB          Genome
+	MutationCatalyst bool
+	HybridCatalyst   bool
+	InbreedingCoeff  uint8
+}
+
+type BreedResult struct {
+	Genome          Genome
+	IncubationHours uint8
+	MutatedGenes    uint16
+}
+
+type BreedingEngine interface {
+	Breed(context.Context, BreedInput, uint64) (BreedResult, error)
+}
+
 type NativeEngine struct{}

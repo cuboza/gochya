@@ -191,6 +191,65 @@ func TestNativeEngineCombatRejectsInvalidInputAndCancellation(t *testing.T) {
 	}
 }
 
+func TestNativeEngineBreedingMatchesRustCore(t *testing.T) {
+	engine := NativeEngine{}
+	input := BreedInput{
+		ParentA:          goldenGenome(0, 2, 1),
+		ParentB:          goldenGenome(1, 5, 2),
+		MutationCatalyst: true,
+		HybridCatalyst:   true,
+	}
+	first, err := engine.Breed(context.Background(), input, 42)
+	if err != nil {
+		t.Fatalf("Breed: %v", err)
+	}
+	second, err := engine.Breed(context.Background(), input, 42)
+	if err != nil {
+		t.Fatalf("repeat Breed: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) ||
+		first.Genome.Generation != 6 ||
+		first.IncubationHours < 4 ||
+		first.IncubationHours > 24 ||
+		first.MutatedGenes&^uint16(0x3fff) != 0 {
+		t.Fatalf("breed result = %#v, repeated = %#v", first, second)
+	}
+	input.ParentA.Visual.PaletteHue = 361
+	if _, err := engine.Breed(context.Background(), input, 42); err == nil {
+		t.Fatal("Breed accepted invalid parent genome")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := engine.Breed(ctx, BreedInput{}, 42); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled Breed error = %v", err)
+	}
+}
+
+func goldenGenome(element uint8, generation uint32, offset uint8) Genome {
+	return Genome{
+		Visual: VisualGenes{
+			BodyShape:  offset,
+			PaletteHue: 30 + uint16(offset),
+			PaletteSat: 60 + offset,
+			Pattern:    offset,
+			Size:       offset,
+			EyeStyle:   offset,
+			Aura:       offset,
+		},
+		Stats: StatPotentials{
+			Strength:  50 + offset,
+			Agility:   60 + offset,
+			Endurance: 70 + offset,
+			Focus:     80 + offset,
+		},
+		Element:      element,
+		TechAffinity: 1,
+		Rarity:       2,
+		Ability:      1,
+		Generation:   generation,
+	}
+}
+
 func goldenCombatLoadout(
 	element uint8,
 	baseDamage float32,

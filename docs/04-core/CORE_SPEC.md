@@ -411,14 +411,12 @@ pub enum BreedFailReason {
 }
 
 #[repr(C)]
-pub struct Catalysts { pub love_crystal: bool, pub mutation: bool }
+pub struct Catalysts { pub mutation: bool, pub hybrid: bool }
 
 #[repr(C)]
-pub struct EggGenome {
+pub struct BreedResult {
     pub genome:           Genome,
     pub incubation_hours: u8,    // 4..24, см. CORE_FORMULAS §3.2
-    pub parent_a:         [u8; 16],
-    pub parent_b:         [u8; 16],
     pub mutated_genes:    u16,   // битовая маска мутировавших генов — для родословной
 }
 
@@ -587,23 +585,22 @@ pub fn muscle_memory_bonus(repeat_count_of_type: u32) -> f32; // → [0, 0.15]
 
 ### 4.4. Бридинг
 ```rust
-pub fn can_breed(a: &Pet, b: &Pet) -> BreedCheck;  // возраст, родство, кулдаун
 pub fn breed(
-    a: &Genome, b: &Genome, catalysts: &Catalysts, rng: &mut Rng,
-) -> EggGenome;     // содержит геном + инкубационное время
-pub fn mutation_chance(a: &Genome, b: &Genome, catalysts: &Catalysts) -> f32;
+    a: &Genome, b: &Genome, catalysts: &Catalysts,
+    inbreeding_coeff: u8, seed: u64,
+) -> BreedResult;     // содержит геном + инкубационное время
+pub fn mutation_chance(
+    a: &Genome, b: &Genome, catalysts: &Catalysts, inbreeding_coeff: u8,
+) -> f32;
 pub fn stat_cap_penalty(generation: u32) -> f32;
-pub fn hybrid_of(e1: Element, e2: Element) -> Element;   // Element::None-эквивалента нет:
-                                                          // возвращает e1 при отсутствии гибрида
-
-/// Коэффициент родства: число общих предков в пределах глубины `depth`.
-/// Используется в `can_breed` (порог ≤3) и в `mutation_chance` (штраф −0.02·coeff).
-/// Требует родословной, поэтому принимает предков явно — ядро не ходит в БД.
-pub fn inbreeding_coeff(
-    lineage_a: *const [u8; 16], len_a: u16,
-    lineage_b: *const [u8; 16], len_b: u16,
-) -> u8;
+pub fn hybrid_of(e1: Element, e2: Element) -> Option<Element>;
 ```
+
+Возраст, cooldown, weakness, стоимость и коэффициент родства проверяет
+авторитетный сервер: эти данные живут в PostgreSQL. Core принимает уже
+посчитанный коэффициент и не ходит в БД. Текущий MVP release gate разрешает
+выдать только Steam; остальные пары из полной `HYBRID_TABLE` остаются
+определены для следующих content releases.
 
 ### 4.5. Симбиоз (активность)
 ```rust

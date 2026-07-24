@@ -29,6 +29,10 @@
   текущему игроку семь local-calendar days в хронологическом порядке, а
   `POST /v1/me/activity/reward` после 100 Vitality один раз выдаёт
   детерминированную server-loot карту до Rare;
+- `POST /v1/breeding/breed` атомарно списывает 500 Koins, Love Crystal и
+  выбранные catalysts, а Rust Core по server seed создаёт яйцо;
+  `GET /v1/me/eggs` возвращает инкубирующиеся яйца, а
+  `POST /v1/me/eggs/:id/hatch` конкурентно создаёт ровно одного питомца;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -95,6 +99,15 @@ Goals считаются Rust Core из среднего предыдущих 14
 хранит canonical snapshot, fingerprint, totals и фактически применённые gains.
 Миграция `000011` связывает единственную дневную reward-карту с activity row и
 хранит её seed; player lock сериализует конкурентные claims.
+
+`internal/breeding` принимает только UUID родителей и имена опциональных
+`mutation`/`hybrid` catalysts. Стадия, уровень, weakness, 24-часовой cooldown,
+родословная до трёх поколений, wallet и item inventory читаются сервером.
+Миграция `000013` создаёт `eggs`, `player_items`, двухсторонний item ledger и
+неистекающий idempotency result: одинаковый UUID-ключ никогда не списывает
+стоимость повторно. Геном и 4–24 часа инкубации вычисляет ABI 2.1.0; текущий
+content gate выпускает только Fire/Water/Earth и Steam. Hatch блокирует player
+и egg rows, поэтому конкурентные запросы возвращают одного сохранённого pet.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и
@@ -234,6 +247,10 @@ POST /v1/me/pets/:id/activate
 POST /v1/matchmaking/queue
 POST /v1/sync/activity
 GET  /v1/me/activity/week
+POST /v1/me/activity/reward
+POST /v1/breeding/breed
+GET  /v1/me/eggs
+POST /v1/me/eggs/:id/hatch
 GET  /v1/match/:id
 POST /v1/match/:id/confirm
 GET  /v1/me/matches/history?limit=

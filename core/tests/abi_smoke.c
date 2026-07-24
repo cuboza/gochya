@@ -6,7 +6,7 @@
 #include <string.h>
 
 int main(void) {
-  assert(gochya_abi_version() == UINT32_C(0x00020000));
+  assert(gochya_abi_version() == UINT32_C(0x00020100));
   assert(sizeof(GochyaPunchMetricsV1) == 40);
   assert(sizeof(GochyaHeartEvidenceV1) == 36);
   assert(sizeof(GochyaHeartVerdictV1) == 28);
@@ -19,6 +19,11 @@ int main(void) {
   assert(sizeof(GochyaCombatMatchV1) == 312);
   assert(sizeof(GochyaCombatRoundV1) == 12);
   assert(sizeof(GochyaCombatResultV1) == 280);
+  assert(sizeof(GochyaVisualGenesV1) == 16);
+  assert(sizeof(GochyaStatPotentialsV1) == 8);
+  assert(sizeof(GochyaGenomeV1) == 40);
+  assert(sizeof(GochyaBreedInputV1) == 112);
+  assert(sizeof(GochyaBreedResultV1) == 64);
 
   GochyaHeartEvidenceV1 heart;
   memset(&heart, 0, sizeof(heart));
@@ -193,6 +198,44 @@ int main(void) {
   assert(combat.rounds[1].damage_b_to_a == 181);
   assert(combat.rounds[2].damage_a_to_b == 413);
   assert(combat.rounds[2].damage_b_to_a == 0);
+
+  GochyaBreedInputV1 breed_input;
+  memset(&breed_input, 0, sizeof(breed_input));
+  breed_input.struct_size = sizeof(breed_input);
+  breed_input.schema_version = 1;
+  breed_input.mutation_catalyst = 1;
+  breed_input.hybrid_catalyst = 1;
+  breed_input.parent_a.visual.palette_hue = 31;
+  breed_input.parent_a.visual.palette_sat = 61;
+  breed_input.parent_a.stats.str_pot = 51;
+  breed_input.parent_a.stats.agi_pot = 61;
+  breed_input.parent_a.stats.end_pot = 71;
+  breed_input.parent_a.stats.foc_pot = 81;
+  breed_input.parent_a.element = 0;
+  breed_input.parent_a.tech_affinity = 1;
+  breed_input.parent_a.rarity = 2;
+  breed_input.parent_a.ability = 1;
+  breed_input.parent_a.generation = 2;
+  breed_input.parent_b = breed_input.parent_a;
+  breed_input.parent_b.visual.palette_hue = 32;
+  breed_input.parent_b.element = 1;
+  breed_input.parent_b.generation = 5;
+  GochyaBreedResultV1 first_breed;
+  GochyaBreedResultV1 second_breed;
+  memset(&first_breed, 0, sizeof(first_breed));
+  memset(&second_breed, 0, sizeof(second_breed));
+  assert(gochya_breed_v1(&breed_input, 42, &first_breed) == GochyaStatus_Ok);
+  assert(gochya_breed_v1(&breed_input, 42, &second_breed) == GochyaStatus_Ok);
+  assert(memcmp(&first_breed, &second_breed, sizeof(first_breed)) == 0);
+  assert(first_breed.struct_size == sizeof(first_breed));
+  assert(first_breed.schema_version == 1);
+  assert(first_breed.incubation_hours >= 4);
+  assert(first_breed.incubation_hours <= 24);
+  assert(first_breed.genome.generation == 6);
+  assert((first_breed.mutated_genes & UINT16_C(0xc000)) == 0);
+  breed_input.parent_a.visual.palette_hue = 361;
+  assert(gochya_breed_v1(&breed_input, 42, &first_breed) ==
+         GochyaStatus_InvalidArgument);
 
   return 0;
 }

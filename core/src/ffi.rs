@@ -6,7 +6,7 @@ use std::{mem::size_of, panic};
 use crate::{
     HeartRateEvidence, PunchMetrics,
     combat::{GearSummary, Loadout, Match, MatchMode, simulate_combat},
-    genome::{Element, Genome},
+    genome::{Ability, Catalysts, Element, Genome, StatPotentials, VisualGenes, breed},
     heart::validate_heart,
     pet::Stats,
     synergy::{
@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-pub const ABI_VERSION: u32 = 0x0002_0000;
+pub const ABI_VERSION: u32 = 0x0002_0100;
 pub const ABI_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -240,6 +240,69 @@ pub struct GochyaCombatResultV1 {
     pub seed: u64,
     pub rounds: [GochyaCombatRoundV1; 20],
     pub reserved: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaVisualGenesV1 {
+    pub body_shape: u8,
+    pub reserved0: u8,
+    pub palette_hue: u16,
+    pub palette_sat: u8,
+    pub pattern: u8,
+    pub size: u8,
+    pub eye_style: u8,
+    pub aura: u8,
+    pub reserved: [u8; 7],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaStatPotentialsV1 {
+    pub str_pot: u8,
+    pub agi_pot: u8,
+    pub end_pot: u8,
+    pub foc_pot: u8,
+    pub reserved: [u8; 4],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaGenomeV1 {
+    pub visual: GochyaVisualGenesV1,
+    pub stats: GochyaStatPotentialsV1,
+    pub element: u8,
+    pub tech_affinity: u8,
+    pub rarity: u8,
+    pub ability: u8,
+    pub generation: u32,
+    pub reserved: [u8; 8],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaBreedInputV1 {
+    pub struct_size: u32,
+    pub schema_version: u16,
+    pub mutation_catalyst: u8,
+    pub hybrid_catalyst: u8,
+    pub inbreeding_coeff: u8,
+    pub reserved0: [u8; 7],
+    pub parent_a: GochyaGenomeV1,
+    pub parent_b: GochyaGenomeV1,
+    pub reserved: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct GochyaBreedResultV1 {
+    pub struct_size: u32,
+    pub schema_version: u16,
+    pub incubation_hours: u8,
+    pub reserved0: u8,
+    pub genome: GochyaGenomeV1,
+    pub mutated_genes: u16,
+    pub reserved: [u8; 14],
 }
 
 #[unsafe(no_mangle)]
@@ -668,6 +731,122 @@ pub extern "C" fn gochya_simulate_combat_v1(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn gochya_breed_v1(
+    input: *const GochyaBreedInputV1,
+    seed: u64,
+    out_result: *mut GochyaBreedResultV1,
+) -> GochyaStatus {
+    catch_status(|| {
+        if input.is_null() || out_result.is_null() {
+            return GochyaStatus::InvalidArgument;
+        }
+        // SAFETY: pointers are non-null and caller promises readable/writable memory.
+        let input = unsafe { &*input };
+        if !valid_header(
+            input.struct_size,
+            input.schema_version,
+            size_of::<GochyaBreedInputV1>(),
+        ) {
+            return GochyaStatus::SchemaMismatch;
+        }
+        if input.mutation_catalyst > 1 || input.hybrid_catalyst > 1 || input.inbreeding_coeff > 3 {
+            return GochyaStatus::InvalidArgument;
+        }
+        let Some(parent_a) = genome_from_ffi(&input.parent_a) else {
+            return GochyaStatus::InvalidArgument;
+        };
+        let Some(parent_b) = genome_from_ffi(&input.parent_b) else {
+            return GochyaStatus::InvalidArgument;
+        };
+        let result = breed(
+            &parent_a,
+            &parent_b,
+            &Catalysts {
+                mutation: input.mutation_catalyst != 0,
+                hybrid: input.hybrid_catalyst != 0,
+            },
+            input.inbreeding_coeff,
+            seed,
+        );
+        // SAFETY: output pointer was checked and caller promises writable storage.
+        unsafe {
+            *out_result = GochyaBreedResultV1 {
+                struct_size: size_u32::<GochyaBreedResultV1>(),
+                schema_version: ABI_SCHEMA_VERSION,
+                incubation_hours: result.incubation_hours,
+                reserved0: 0,
+                genome: genome_to_ffi(result.genome),
+                mutated_genes: result.mutated_genes,
+                reserved: [0; 14],
+            };
+        }
+        GochyaStatus::Ok
+    })
+}
+
+fn genome_from_ffi(input: &GochyaGenomeV1) -> Option<Genome> {
+    if input.visual.palette_hue > 360
+        || input.visual.palette_sat > 100
+        || input.stats.str_pot > 100
+        || input.stats.agi_pot > 100
+        || input.stats.end_pot > 100
+        || input.stats.foc_pot > 100
+    {
+        return None;
+    }
+    Some(Genome {
+        visual: VisualGenes {
+            body_shape: input.visual.body_shape,
+            palette_hue: input.visual.palette_hue,
+            palette_sat: input.visual.palette_sat,
+            pattern: input.visual.pattern,
+            size: input.visual.size,
+            eye_style: input.visual.eye_style,
+            aura: input.visual.aura,
+        },
+        stats: StatPotentials {
+            str_pot: input.stats.str_pot,
+            agi_pot: input.stats.agi_pot,
+            end_pot: input.stats.end_pot,
+            foc_pot: input.stats.foc_pot,
+        },
+        element: element_from_u8(input.element)?,
+        tech_affinity: technique_type_from_u8(input.tech_affinity)?,
+        rarity: rarity_from_u8(input.rarity)?,
+        ability: ability_from_u8(input.ability)?,
+        generation: input.generation,
+    })
+}
+
+fn genome_to_ffi(input: Genome) -> GochyaGenomeV1 {
+    GochyaGenomeV1 {
+        visual: GochyaVisualGenesV1 {
+            body_shape: input.visual.body_shape,
+            palette_hue: input.visual.palette_hue,
+            palette_sat: input.visual.palette_sat,
+            pattern: input.visual.pattern,
+            size: input.visual.size,
+            eye_style: input.visual.eye_style,
+            aura: input.visual.aura,
+            ..GochyaVisualGenesV1::default()
+        },
+        stats: GochyaStatPotentialsV1 {
+            str_pot: input.stats.str_pot,
+            agi_pot: input.stats.agi_pot,
+            end_pot: input.stats.end_pot,
+            foc_pot: input.stats.foc_pot,
+            ..GochyaStatPotentialsV1::default()
+        },
+        element: input.element as u8,
+        tech_affinity: input.tech_affinity as u8,
+        rarity: input.rarity as u8,
+        ability: input.ability as u8,
+        generation: input.generation,
+        reserved: [0; 8],
+    }
+}
+
 fn combat_loadout_from_ffi(input: &GochyaCombatLoadoutV1) -> Option<Loadout> {
     if input.pet_mood > 100 || input.signature_idx > 4 {
         return None;
@@ -813,6 +992,31 @@ const fn effect_kind_from_u8(value: u8) -> Option<EffectKind> {
     }
 }
 
+const fn rarity_from_u8(value: u8) -> Option<Rarity> {
+    match value {
+        0 => Some(Rarity::Common),
+        1 => Some(Rarity::Uncommon),
+        2 => Some(Rarity::Rare),
+        3 => Some(Rarity::Epic),
+        4 => Some(Rarity::Legendary),
+        5 => Some(Rarity::Mythic),
+        _ => None,
+    }
+}
+
+const fn ability_from_u8(value: u8) -> Option<Ability> {
+    match value {
+        0 => Some(Ability::None),
+        1 => Some(Ability::Regen),
+        2 => Some(Ability::CritAura),
+        3 => Some(Ability::Thorns),
+        4 => Some(Ability::Shield),
+        5 => Some(Ability::Lifesteal),
+        6 => Some(Ability::LineageSignature),
+        _ => None,
+    }
+}
+
 const fn match_mode_from_u8(value: u8) -> Option<MatchMode> {
     match value {
         0 => Some(MatchMode::Casual),
@@ -839,6 +1043,11 @@ const _: () = {
     assert!(size_of::<GochyaCombatMatchV1>() == 312);
     assert!(size_of::<GochyaCombatRoundV1>() == 12);
     assert!(size_of::<GochyaCombatResultV1>() == 280);
+    assert!(size_of::<GochyaVisualGenesV1>() == 16);
+    assert!(size_of::<GochyaStatPotentialsV1>() == 8);
+    assert!(size_of::<GochyaGenomeV1>() == 40);
+    assert!(size_of::<GochyaBreedInputV1>() == 112);
+    assert!(size_of::<GochyaBreedResultV1>() == 64);
 };
 
 #[cfg(test)]
@@ -939,6 +1148,34 @@ mod tests {
             loadout_a: ffi_combat_loadout(Element::Fire, 260.0, 70.0),
             loadout_b: ffi_combat_loadout(Element::Earth, 240.0, 60.0),
             ..GochyaCombatMatchV1::default()
+        }
+    }
+
+    fn ffi_genome(element: Element, generation: u32, offset: u8) -> GochyaGenomeV1 {
+        GochyaGenomeV1 {
+            visual: GochyaVisualGenesV1 {
+                body_shape: offset,
+                palette_hue: 30 + u16::from(offset),
+                palette_sat: 60 + offset,
+                pattern: offset,
+                size: offset,
+                eye_style: offset,
+                aura: offset,
+                ..GochyaVisualGenesV1::default()
+            },
+            stats: GochyaStatPotentialsV1 {
+                str_pot: 50 + offset,
+                agi_pot: 60 + offset,
+                end_pot: 70 + offset,
+                foc_pot: 80 + offset,
+                ..GochyaStatPotentialsV1::default()
+            },
+            element: element as u8,
+            tech_affinity: TechniqueType::Hook as u8,
+            rarity: Rarity::Rare as u8,
+            ability: Ability::Regen as u8,
+            generation,
+            reserved: [0; 8],
         }
     }
 
@@ -1170,6 +1407,55 @@ mod tests {
         match_.loadout_b.element = u8::MAX;
         assert_eq!(
             gochya_simulate_combat_v1(&raw const match_, 42, &raw mut output),
+            GochyaStatus::InvalidArgument
+        );
+    }
+
+    #[test]
+    fn abi_breeding_is_deterministic_and_validates_inputs() {
+        let input = GochyaBreedInputV1 {
+            struct_size: size_u32::<GochyaBreedInputV1>(),
+            schema_version: ABI_SCHEMA_VERSION,
+            mutation_catalyst: 1,
+            hybrid_catalyst: 1,
+            parent_a: ffi_genome(Element::Fire, 2, 1),
+            parent_b: ffi_genome(Element::Water, 5, 2),
+            ..GochyaBreedInputV1::default()
+        };
+        let mut first = GochyaBreedResultV1::default();
+        let mut second = GochyaBreedResultV1::default();
+        assert_eq!(
+            gochya_breed_v1(&raw const input, 42, &raw mut first),
+            GochyaStatus::Ok
+        );
+        assert_eq!(
+            gochya_breed_v1(&raw const input, 42, &raw mut second),
+            GochyaStatus::Ok
+        );
+        assert_eq!(first.struct_size, 64);
+        assert_eq!(first.schema_version, ABI_SCHEMA_VERSION);
+        assert_eq!(first.incubation_hours, second.incubation_hours);
+        assert_eq!(first.mutated_genes, second.mutated_genes);
+        assert_eq!(first.genome.generation, 6);
+        assert_eq!(first.genome.element, second.genome.element);
+        assert!((4..=24).contains(&first.incubation_hours));
+        assert_eq!(first.mutated_genes & !0x3fff, 0);
+        assert!(first.reserved.iter().all(|value| *value == 0));
+
+        let mut invalid = input;
+        invalid.parent_a.visual.palette_hue = 361;
+        assert_eq!(
+            gochya_breed_v1(&raw const invalid, 42, &raw mut first),
+            GochyaStatus::InvalidArgument
+        );
+        invalid = input;
+        invalid.schema_version = 99;
+        assert_eq!(
+            gochya_breed_v1(&raw const invalid, 42, &raw mut first),
+            GochyaStatus::SchemaMismatch
+        );
+        assert_eq!(
+            gochya_breed_v1(std::ptr::null(), 42, &raw mut first),
             GochyaStatus::InvalidArgument
         );
     }
