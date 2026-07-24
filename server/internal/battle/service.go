@@ -10,10 +10,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gochya/gochya/server/internal/corebridge"
+)
+
+const (
+	defaultHistoryLimit = 20
+	maxHistoryLimit     = 100
 )
 
 type ServiceConfig struct {
@@ -124,6 +130,40 @@ func (s *Service) Match(
 	}
 	response, err := s.store.Match(ctx, playerID, matchID)
 	return response, mapStoreError(err)
+}
+
+func (s *Service) History(
+	ctx context.Context,
+	playerID string,
+	rawLimit string,
+) ([]MatchSummary, error) {
+	if strings.TrimSpace(playerID) == "" {
+		return nil, apiError(
+			"identity_invalid",
+			"authenticated player is required",
+			http.StatusBadRequest,
+		)
+	}
+	limit := defaultHistoryLimit
+	if rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil || parsed < 1 || parsed > maxHistoryLimit {
+			return nil, apiError(
+				"limit_invalid",
+				"limit must be an integer between 1 and 100",
+				http.StatusBadRequest,
+			)
+		}
+		limit = parsed
+	}
+	response, err := s.store.History(ctx, playerID, limit)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	if response == nil {
+		response = []MatchSummary{}
+	}
+	return response, nil
 }
 
 func mapStoreError(err error) error {

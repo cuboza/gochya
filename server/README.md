@@ -19,7 +19,8 @@
 - deterministic combat доступен через тот же native Core как компактный
   `MatchV1 → MatchResultV1` snapshot с максимумом 20 раундов;
 - `POST /v1/matchmaking/queue` создаёт idempotent casual match по двум
-  серверным loadout, а `GET /v1/match/:id` отдаёт сохранённый replay участнику;
+  серверным loadout, `GET /v1/match/:id` отдаёт сохранённый replay участнику,
+  а `GET /v1/me/matches/history` — его последние результаты;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -64,7 +65,10 @@ pet/card stats, seed и opponent выбирает сервер. PostgreSQL-тр�
 фиксирует обе loadout revision и snapshots, вызывает native Rust combat и
 сохраняет replay до ответа. Временная advisory lock сериализует создание
 матчей до внедрения Redis queue; повтор ключа в течение 24 часов не запускает
-Core второй раз. Читать результат могут только оба участника.
+Core второй раз. Читать результат могут только оба участника. История также
+ограничена участником, сортируется по `created_at DESC, id DESC`, принимает
+`limit` от 1 до 100 (по умолчанию 20) и возвращает исход матча относительно
+текущего игрока: `win`, `loss` или `draw`.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и
@@ -203,6 +207,7 @@ GET  /v1/me/pets/:id
 POST /v1/me/pets/:id/activate
 POST /v1/matchmaking/queue
 GET  /v1/match/:id
+GET  /v1/me/matches/history?limit=
 GET  /v1/me/techniques?limit=&cursor=
 POST /v1/me/techniques/equip
 GET  /v1/me/loadout

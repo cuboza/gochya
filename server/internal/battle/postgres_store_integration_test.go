@@ -75,6 +75,48 @@ func TestPostgresCasualMatchIsAtomicAndIdempotent(t *testing.T) {
 	if _, err := store.QueueCasual(ctx, conflict, core); err != ErrIdempotencyConflict {
 		t.Fatalf("conflict error = %v", err)
 	}
+
+	second := QueueCommit{
+		PlayerID:       opponentID,
+		IdempotencyKey: "99999999-9999-4999-8999-999999999999",
+		RequestHash:    [32]byte{3},
+		MatchID:        "99999999-9999-4999-8999-999999999998",
+		Seed:           43,
+		Now:            commit.Now.Add(time.Minute),
+	}
+	if _, err := store.QueueCasual(ctx, second, core); err != nil {
+		t.Fatalf("queue second match: %v", err)
+	}
+	history, err := store.History(ctx, battlePlayer, 10)
+	if err != nil {
+		t.Fatalf("History player A: %v", err)
+	}
+	if len(history) != 2 ||
+		history[0].ID != second.MatchID ||
+		history[0].OpponentID != opponentID ||
+		history[0].Outcome != "loss" ||
+		history[1].ID != commit.MatchID ||
+		history[1].Outcome != "win" {
+		t.Fatalf("player A history = %#v", history)
+	}
+	limited, err := store.History(ctx, opponentID, 1)
+	if err != nil {
+		t.Fatalf("History player B: %v", err)
+	}
+	if len(limited) != 1 ||
+		limited[0].ID != second.MatchID ||
+		limited[0].OpponentID != battlePlayer ||
+		limited[0].Outcome != "win" {
+		t.Fatalf("player B limited history = %#v", limited)
+	}
+	outsider, err := store.History(
+		ctx,
+		"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+		10,
+	)
+	if err != nil || len(outsider) != 0 {
+		t.Fatalf("outsider history = %#v, %v", outsider, err)
+	}
 }
 
 type countingCore struct{ calls atomic.Int32 }

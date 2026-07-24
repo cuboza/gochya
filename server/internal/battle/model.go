@@ -43,6 +43,14 @@ type MatchResponse struct {
 	CreatedAt        time.Time `json:"createdAt"`
 }
 
+type MatchSummary struct {
+	ID         string    `json:"id"`
+	OpponentID string    `json:"opponentId"`
+	Mode       string    `json:"mode"`
+	Outcome    string    `json:"outcome"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
 type QueueCommit struct {
 	PlayerID       string
 	IdempotencyKey string

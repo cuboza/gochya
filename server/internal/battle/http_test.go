@@ -1,0 +1,131 @@
+package battle
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/gochya/gochya/server/internal/dojo"
+)
+
+func TestHTTPMatchHistory(t *testing.T) {
+	store := &fakeStore{history: []MatchSummary{{
+		ID:         "22222222-2222-4222-8222-222222222222",
+		OpponentID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		Mode:       "casual",
+		Outcome:    "win",
+		CreatedAt:  time.Unix(1, 0).UTC(),
+	}}}
+	routes := battleRoutes(t, store)
+	request := httptest.NewRequest(http.MethodGet, "/v1/me/matches/history?limit=1", nil)
+	request.Header.Set("X-Player-ID", battlePlayer)
+	recorder := httptest.NewRecorder()
+
+	routes.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+	}
+	var response []MatchSummary
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response) != 1 || response[0] != store.history[0] || store.historyLimit != 1 {
+		t.Fatalf("response = %#v, limit = %d", response, store.historyLimit)
+	}
+	if recorder.Header().Get("Cache-Control") != "private, no-store" ||
+		recorder.Header().Get("X-Request-ID") == "" {
+		t.Fatalf("headers = %#v", recorder.Header())
+	}
+}
+
+func TestHTTPMatchHistoryBoundaries(t *testing.T) {
+	routes := battleRoutes(t, &fakeStore{})
+	tests := []struct {
+		name       string
+		method     string
+		target     string
+		auth       bool
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "authentication required",
+			method:     http.MethodGet,
+			target:     "/v1/me/matches/history",
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "unauthenticated",
+		},
+		{
+			name:       "method rejected",
+			method:     http.MethodPost,
+			target:     "/v1/me/matches/history",
+			auth:       true,
+			wantStatus: http.StatusMethodNotAllowed,
+			wantCode:   "method_not_allowed",
+		},
+		{
+			name:       "unknown query rejected",
+			method:     http.MethodGet,
+			target:     "/v1/me/matches/history?cursor=x",
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_query",
+		},
+		{
+			name:       "duplicate limit rejected",
+			method:     http.MethodGet,
+			target:     "/v1/me/matches/history?limit=1&limit=2",
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_query",
+		},
+		{
+			name:       "invalid limit rejected",
+			method:     http.MethodGet,
+			target:     "/v1/me/matches/history?limit=101",
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "limit_invalid",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.target, nil)
+			if test.auth {
+				request.Header.Set("X-Player-ID", battlePlayer)
+			}
+			recorder := httptest.NewRecorder()
+			routes.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+			}
+			var response struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			if response.Error.Code != test.wantCode {
+				t.Fatalf("code = %q, want %q", response.Error.Code, test.wantCode)
+			}
+		})
+	}
+}
+
+func battleRoutes(t *testing.T, store Store) http.Handler {
+	t.Helper()
+	service, err := NewService(ServiceConfig{Store: store, Core: fakeCore{}})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	handler, err := NewHTTPHandler(service, dojo.HeaderAuthenticator{}, nil)
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+	return handler.Routes()
+}

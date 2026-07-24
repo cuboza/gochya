@@ -162,6 +162,74 @@ func (s *PostgresStore) Match(
 	return response, nil
 }
 
+func (s *PostgresStore) History(
+	ctx context.Context,
+	playerID string,
+	limit int,
+) ([]MatchSummary, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id::text,player_a::text,player_b::text,
+		mode,result,created_at
+		FROM matches WHERE player_a=$1 OR player_b=$1
+		ORDER BY created_at DESC,id DESC LIMIT $2`, playerID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query match history: %w", err)
+	}
+	defer rows.Close()
+
+	history := make([]MatchSummary, 0, limit)
+	for rows.Next() {
+		var summary MatchSummary
+		var playerAID, playerBID string
+		var resultJSON []byte
+		if err := rows.Scan(
+			&summary.ID,
+			&playerAID,
+			&playerBID,
+			&summary.Mode,
+			&resultJSON,
+			&summary.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan match history: %w", err)
+		}
+		var result Result
+		if err := json.Unmarshal(resultJSON, &result); err != nil {
+			return nil, fmt.Errorf("decode match history result: %w", err)
+		}
+		switch {
+		case playerID == playerAID:
+			summary.OpponentID = playerBID
+		case playerID == playerBID:
+			summary.OpponentID = playerAID
+		default:
+			return nil, errors.New("match history returned a non-participant")
+		}
+		switch result.Winner {
+		case "draw":
+			summary.Outcome = "draw"
+		case "a":
+			if playerID == playerAID {
+				summary.Outcome = "win"
+			} else {
+				summary.Outcome = "loss"
+			}
+		case "b":
+			if playerID == playerBID {
+				summary.Outcome = "win"
+			} else {
+				summary.Outcome = "loss"
+			}
+		default:
+			return nil, errors.New("match history contains an invalid winner")
+		}
+		summary.CreatedAt = summary.CreatedAt.UTC()
+		history = append(history, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate match history: %w", err)
+	}
+	return history, nil
+}
+
 type snapshot struct {
 	PetID        string                   `json:"petId"`
 	CardIDs      []string                 `json:"cardIds"`

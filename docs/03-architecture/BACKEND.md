@@ -647,8 +647,15 @@ snapshot входов и результат native `gochya_simulate_combat_v1`. 
 участников. Миграция `000008_casual_matches` создаёт `matches` и отдельную
 idempotency table. Текущий MVP-matcher синхронно выбирает первый доступный
 не-weak loadout и сериализует создание матчей PostgreSQL advisory lock.
-Redis queue, ожидание до 60 секунд, history, confirm и rewards ledger остаются
-следующим rollout; endpoint не имитирует их готовность. Стабильные отказы:
+`GET /v1/me/matches/history` также ограничен участником, принимает `limit`
+`1..100` (по умолчанию 20), сортирует по `created_at DESC, id DESC` и возвращает
+`[{ id, opponentId, mode, outcome, createdAt }]`, где `outcome` вычисляется
+сервером относительно JWT subject (`win | loss | draw`).
+
+Redis queue, ожидание до 60 секунд, confirm и rewards ledger остаются следующим
+rollout; endpoint не имитирует их готовность. До реализации `confirm` в
+`BALANCE.md` должны быть зафиксированы суммы casual-наград и дневной anti-farm
+cap — произвольные валютные значения в backend запрещены. Стабильные отказы:
 `loadout_required`, `pet_weak`, `no_opponent`, `match_not_found`,
 `idempotency_conflict`, `core_unavailable`.
 

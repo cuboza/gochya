@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ func (h *HTTPHandler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/matchmaking/queue", h.queue)
 	mux.HandleFunc("/v1/match/", h.match)
+	mux.HandleFunc("/v1/me/matches/history", h.history)
 	return mux
 }
 
@@ -90,6 +92,36 @@ func (h *HTTPHandler) match(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response, err := h.service.Match(r.Context(), playerID, matchID)
+	if err != nil {
+		h.writeError(w, requestID, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+func (h *HTTPHandler) history(w http.ResponseWriter, r *http.Request) {
+	requestID := h.prepare(w)
+	if r.Method != http.MethodGet {
+		h.writeError(w, requestID, apiError("method_not_allowed", "method is not allowed", 405))
+		return
+	}
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || len(query) > 1 || len(query["limit"]) > 1 {
+		h.writeError(w, requestID, apiError("invalid_query", "query parameters are invalid", 400))
+		return
+	}
+	for key := range query {
+		if key != "limit" {
+			h.writeError(w, requestID, apiError("invalid_query", "query parameters are invalid", 400))
+			return
+		}
+	}
+	playerID, err := h.authenticator.Authenticate(r)
+	if err != nil {
+		h.writeError(w, requestID, err)
+		return
+	}
+	response, err := h.service.History(r.Context(), playerID, query.Get("limit"))
 	if err != nil {
 		h.writeError(w, requestID, err)
 		return

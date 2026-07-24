@@ -8,6 +8,7 @@ import (
 type Store interface {
 	QueueCasual(context.Context, QueueCommit, Simulator) (QueueResponse, error)
 	Match(context.Context, string, string) (MatchResponse, error)
+	History(context.Context, string, int) ([]MatchSummary, error)
 }
 
 var (
