@@ -41,6 +41,10 @@ Authenticated profile API возвращает только питомцев т�
 Casual match теперь целиком считается native Rust Core по двум авторитетным
 server-side loadout; PostgreSQL сохраняет seed, обе revision и replay, а
 idempotent retry не создаёт второй бой.
+Телефонный игрок может получить первую server-authoritative Technique Card без
+Dojo: после 100 дневной Vitality activity reward детерминированно рассчитывается
+Rust Core из сохранённого seed и конкурентно выдаётся ровно один раз за локальный
+день.
 `server/cmd/api` собирает эти компоненты в fail-closed production-процесс с
 PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 Полная текущая цепочка PostgreSQL migrations теперь стартует из пустой schema,

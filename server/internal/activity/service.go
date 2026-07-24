@@ -2,9 +2,12 @@ package activity
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -16,14 +19,22 @@ const maxFutureClockSkew = 5 * time.Minute
 
 type ServiceConfig struct {
 	Store Store
-	Core  corebridge.ActivityEngine
-	Now   func() time.Time
+	Core  interface {
+		corebridge.ActivityEngine
+		corebridge.LootEngine
+	}
+	Now    func() time.Time
+	Random io.Reader
 }
 
 type Service struct {
 	store Store
-	core  corebridge.ActivityEngine
-	now   func() time.Time
+	core  interface {
+		corebridge.ActivityEngine
+		corebridge.LootEngine
+	}
+	now    func() time.Time
+	random io.Reader
 }
 
 func NewService(config ServiceConfig) (*Service, error) {
@@ -33,7 +44,15 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if config.Now == nil {
 		config.Now = time.Now
 	}
-	return &Service{store: config.Store, core: config.Core, now: config.Now}, nil
+	if config.Random == nil {
+		config.Random = rand.Reader
+	}
+	return &Service{
+		store:  config.Store,
+		core:   config.Core,
+		now:    config.Now,
+		random: config.Random,
+	}, nil
 }
 
 func (s *Service) Sync(
@@ -159,6 +178,34 @@ func (s *Service) Week(
 	return response, nil
 }
 
+func (s *Service) ClaimReward(
+	ctx context.Context,
+	playerID string,
+) (RewardResponse, error) {
+	if strings.TrimSpace(playerID) == "" {
+		return RewardResponse{}, apiError(
+			"identity_invalid",
+			"authenticated player is required",
+			http.StatusBadRequest,
+		)
+	}
+	cardID, err := randomUUID(s.random)
+	if err != nil {
+		return RewardResponse{}, asAPIError(err)
+	}
+	seedBytes := make([]byte, 8)
+	if _, err := io.ReadFull(s.random, seedBytes); err != nil {
+		return RewardResponse{}, asAPIError(err)
+	}
+	response, err := s.store.ClaimReward(ctx, RewardClaim{
+		PlayerID: playerID,
+		CardID:   cardID,
+		Seed:     binary.BigEndian.Uint64(seedBytes),
+		Now:      s.now().UTC(),
+	}, s.core)
+	return response, mapStoreError(err)
+}
+
 func activitySource(raw string) (uint8, string, error) {
 	source := strings.ToLower(strings.TrimSpace(raw))
 	switch source {
@@ -202,6 +249,18 @@ func mapStoreError(err error) error {
 		return apiError(
 			"pet_state_invalid",
 			"active pet state is invalid",
+			http.StatusConflict,
+		)
+	case errors.Is(err, ErrActivityRequired):
+		return apiError(
+			"activity_required",
+			"sync today's activity before claiming its reward",
+			http.StatusConflict,
+		)
+	case errors.Is(err, ErrRewardLocked):
+		return apiError(
+			"activity_reward_locked",
+			"earn 100 Vitality today before claiming the activity reward",
 			http.StatusConflict,
 		)
 	case errors.Is(err, corebridge.ErrUnavailable):

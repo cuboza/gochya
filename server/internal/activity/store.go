@@ -15,6 +15,11 @@ type Store interface {
 		corebridge.ActivityEngine,
 	) (SyncResponse, error)
 	Week(context.Context, string, time.Time) ([]DailyActivity, error)
+	ClaimReward(
+		context.Context,
+		RewardClaim,
+		corebridge.LootEngine,
+	) (RewardResponse, error)
 }
 
 var (
@@ -22,4 +27,6 @@ var (
 	ErrActivePetRequired = errors.New("active pet is required")
 	ErrSnapshotDate      = errors.New("snapshot must belong to the current player day")
 	ErrPetStateInvalid   = errors.New("active pet state is invalid")
+	ErrActivityRequired  = errors.New("daily activity is required")
+	ErrRewardLocked      = errors.New("daily activity reward is locked")
 )

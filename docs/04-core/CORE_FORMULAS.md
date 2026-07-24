@@ -117,12 +117,44 @@ rarityFromQuality(q):
 ### 2.6. Technique Card stats
 ```
 typeMultiplier(techType) = из таблицы (см. BALANCE.md), обычно 1.0 ± 0.2
-baseDamage = (peakAccel / 50) * precision * typeMultiplier * techLevel
+baseDamage = 100 * (peakAccel / 50) * precision * typeMultiplier * techLevel
             // techLevel — уровневый множитель, растёт от игрока (1.0..1.5)
 speed       = 100 / (1 + execTime_seconds)
 staminaCost = round((peakAccel / 50) * 2.2)
 critChance  = clamp(0.02 + 0.01 * comboLen + 0.05 * (rhythmScore - 0.5), 0, 0.35)
 ```
+
+Множитель `100` переводит нормализованный результат записи в ту же шкалу
+`baseDamage`, которую использует combat (`maxHP` начинается с 1000). Без него
+валидная Dojo-карта наносила бы около 1 единицы урона и не могла завершить бой
+за лимит раундов.
+
+### 2.6a. Technique Card из игровой добычи
+
+`generateLootTechnique(seed, maxRarity)` использует общий PCG RNG Core и
+детерминированно выбирает offensive technique, rarity, quality и боевые статы.
+`maxRarity` для игровой добычи ограничен Epic; источник передаёт свой более
+строгий потолок (дневная активность — Rare).
+
+| Потолок | Common | Uncommon | Rare | Epic |
+|---|---:|---:|---:|---:|
+| Common | 100% | — | — | — |
+| Uncommon | 70% | 30% | — | — |
+| Rare | 60% | 30% | 10% | — |
+| Epic | 50% | 30% | 15% | 5% |
+
+```
+quality = seededUniform(rarityQualityMin, rarityQualityMax)
+baseDamage = (80 + quality) * typeMultiplier(techType)
+speed = typeBaseSpeed(techType) + seededUniform(-5, +5)
+staminaCost = typeStaminaCost(techType)
+critChance = clamp(0.03 + quality/1000 + seededUniform(0, 0.03), 0, 0.35)
+```
+
+Block пока не выпадает: у loot-карт ещё нет server-generated effect, поэтому
+effect-less defensive карта была бы заведомо слабой. Один и тот же
+`seed + maxRarity` обязан давать byte-for-byte одинаковые stats на всех
+платформах.
 
 ### 2.7. Мышечная память (антигринд-бонус)
 ```

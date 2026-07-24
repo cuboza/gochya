@@ -4,9 +4,11 @@ import (
 	"time"
 
 	"github.com/gochya/gochya/server/internal/corebridge"
+	"github.com/gochya/gochya/server/internal/dojo"
 )
 
 const SnapshotSchemaVersion = 1
+const ActivityRewardVitality = 100
 
 type Workout struct {
 	Kind            uint8  `json:"kind"`
@@ -74,6 +76,19 @@ type DailyActivity struct {
 	Goals           Goals     `json:"goals"`
 	SourceMetadata  string    `json:"sourceMetadata"`
 	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+type RewardResponse struct {
+	Date    string             `json:"date"`
+	Card    dojo.TechniqueCard `json:"card"`
+	Awarded bool               `json:"awarded"`
+}
+
+type RewardClaim struct {
+	PlayerID string
+	CardID   string
+	Seed     uint64
+	Now      time.Time
 }
 
 type SyncCommit struct {

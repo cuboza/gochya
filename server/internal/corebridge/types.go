@@ -168,4 +168,8 @@ type ActivityEngine interface {
 	) (ActivityResult, error)
 }
 
+type LootEngine interface {
+	GenerateLootTechnique(context.Context, uint64, uint8) (TechniqueStats, error)
+}
+
 type NativeEngine struct{}

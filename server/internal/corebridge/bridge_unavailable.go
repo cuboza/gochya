@@ -17,6 +17,14 @@ func (NativeEngine) DeriveTechnique(
 	return TechniqueStats{}, ErrUnavailable
 }
 
+func (NativeEngine) GenerateLootTechnique(
+	context.Context,
+	uint64,
+	uint8,
+) (TechniqueStats, error) {
+	return TechniqueStats{}, ErrUnavailable
+}
+
 func (NativeEngine) SimulateCombat(
 	context.Context,
 	CombatMatch,

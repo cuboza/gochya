@@ -14,11 +14,12 @@ use crate::{
         WorkoutSummary, compute_goals, compute_stat_gains, compute_vitality,
     },
     technique::{
-        Effect, EffectKind, TechniqueCard, TechniqueType, derive_technique_stats, quality_score,
+        Effect, EffectKind, Rarity, TechniqueCard, TechniqueStats, TechniqueType,
+        derive_technique_stats, generate_loot_technique_stats, quality_score,
     },
 };
 
-pub const ABI_VERSION: u32 = 0x0001_0300;
+pub const ABI_VERSION: u32 = 0x0002_0000;
 pub const ABI_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -555,24 +556,50 @@ pub extern "C" fn gochya_derive_technique_v1(
             technique_type,
         };
         let stats = derive_technique_stats(&domain_metrics, &heart_from_ffi(heart), tech_level);
-        // SAFETY: output pointer was checked and caller promises it is writable.
-        unsafe {
-            *out_stats = GochyaTechniqueStatsV1 {
-                struct_size: size_u32::<GochyaTechniqueStatsV1>(),
-                schema_version: ABI_SCHEMA_VERSION,
-                technique_type: stats.type_ as u8,
-                rarity: stats.rarity as u8,
-                base_damage: stats.base_damage,
-                speed: stats.speed,
-                crit_chance: stats.crit_chance,
-                stamina_cost: stats.stamina_cost,
-                quality: stats.quality,
-                reserved0: 0,
-                reserved: [0; 16],
-            };
-        }
+        write_technique_stats(out_stats, stats);
         GochyaStatus::Ok
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gochya_generate_loot_technique_v1(
+    seed: u64,
+    max_rarity: u8,
+    out_stats: *mut GochyaTechniqueStatsV1,
+) -> GochyaStatus {
+    catch_status(|| {
+        if out_stats.is_null() || max_rarity > Rarity::Epic as u8 {
+            return GochyaStatus::InvalidArgument;
+        }
+        let rarity = match max_rarity {
+            0 => Rarity::Common,
+            1 => Rarity::Uncommon,
+            2 => Rarity::Rare,
+            _ => Rarity::Epic,
+        };
+        write_technique_stats(out_stats, generate_loot_technique_stats(seed, rarity));
+        GochyaStatus::Ok
+    })
+}
+
+fn write_technique_stats(out_stats: *mut GochyaTechniqueStatsV1, stats: TechniqueStats) {
+    // SAFETY: every caller checks that the output pointer is non-null and the
+    // foreign caller promises writable storage for the complete V1 struct.
+    unsafe {
+        *out_stats = GochyaTechniqueStatsV1 {
+            struct_size: size_u32::<GochyaTechniqueStatsV1>(),
+            schema_version: ABI_SCHEMA_VERSION,
+            technique_type: stats.type_ as u8,
+            rarity: stats.rarity as u8,
+            base_damage: stats.base_damage,
+            speed: stats.speed,
+            crit_chance: stats.crit_chance,
+            stamina_cost: stats.stamina_cost,
+            quality: stats.quality,
+            reserved0: 0,
+            reserved: [0; 16],
+        };
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -969,8 +996,35 @@ mod tests {
             GochyaStatus::Ok
         );
         assert_eq!(stats.rarity, 2);
-        assert!((stats.base_damage - 1.04).abs() < 0.000_01);
+        assert!((stats.base_damage - 104.0).abs() < 0.000_01);
         assert_eq!(stats.quality, 64);
+    }
+
+    #[test]
+    fn abi_generates_deterministic_capped_loot_technique() {
+        let mut first = GochyaTechniqueStatsV1::default();
+        let mut second = GochyaTechniqueStatsV1::default();
+        assert_eq!(
+            gochya_generate_loot_technique_v1(42, Rarity::Rare as u8, &raw mut first),
+            GochyaStatus::Ok
+        );
+        assert_eq!(
+            gochya_generate_loot_technique_v1(42, Rarity::Rare as u8, &raw mut second),
+            GochyaStatus::Ok
+        );
+        assert_eq!(first.technique_type, second.technique_type);
+        assert_eq!(first.rarity, second.rarity);
+        assert_eq!(first.base_damage, second.base_damage);
+        assert_eq!(first.quality, second.quality);
+        assert_eq!(first.technique_type, TechniqueType::Elbow as u8);
+        assert_eq!(first.rarity, Rarity::Common as u8);
+        assert_eq!(first.base_damage, 126.5);
+        assert_eq!(first.quality, 35);
+        assert!(first.rarity <= Rarity::Rare as u8);
+        assert_eq!(
+            gochya_generate_loot_technique_v1(42, Rarity::Legendary as u8, &raw mut first),
+            GochyaStatus::InvalidArgument
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 package activity
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"reflect"
@@ -20,6 +21,9 @@ type fakeStore struct {
 	weekErr    error
 	weekPlayer string
 	weekNow    time.Time
+	reward     RewardResponse
+	rewardErr  error
+	claims     []RewardClaim
 }
 
 func (s *fakeStore) Sync(
@@ -41,6 +45,15 @@ func (s *fakeStore) Week(
 	return s.week, s.weekErr
 }
 
+func (s *fakeStore) ClaimReward(
+	_ context.Context,
+	input RewardClaim,
+	_ corebridge.LootEngine,
+) (RewardResponse, error) {
+	s.claims = append(s.claims, input)
+	return s.reward, s.rewardErr
+}
+
 type fakeCore struct{}
 
 func (fakeCore) ComputeGoals(
@@ -57,6 +70,14 @@ func (fakeCore) ComputeActivity(
 	uint32,
 ) (corebridge.ActivityResult, error) {
 	return corebridge.ActivityResult{}, nil
+}
+
+func (fakeCore) GenerateLootTechnique(
+	context.Context,
+	uint64,
+	uint8,
+) (corebridge.TechniqueStats, error) {
+	return corebridge.TechniqueStats{}, nil
 }
 
 func TestServiceNormalizesAndFingerprintsActivitySnapshot(t *testing.T) {
@@ -198,6 +219,8 @@ func TestServiceMapsActivityStoreErrors(t *testing.T) {
 		{ErrActivePetRequired, "active_pet_required"},
 		{ErrSnapshotDate, "snapshot_date_invalid"},
 		{ErrPetStateInvalid, "pet_state_invalid"},
+		{ErrActivityRequired, "activity_required"},
+		{ErrRewardLocked, "activity_reward_locked"},
 		{corebridge.ErrUnavailable, "core_unavailable"},
 		{errors.New("database failed"), "internal_error"},
 	}
@@ -257,6 +280,42 @@ func TestServiceReturnsWeeklyActivity(t *testing.T) {
 		t.Fatalf("empty week = %#v, %v", response, err)
 	}
 	_, err = service.Week(context.Background(), "")
+	assertActivityErrorCode(t, err, "identity_invalid")
+}
+
+func TestServiceClaimsActivityRewardWithServerRandomness(t *testing.T) {
+	now := time.Date(2026, time.July, 24, 8, 30, 0, 0, time.UTC)
+	expected := RewardResponse{Date: "2026-07-24", Awarded: true}
+	store := &fakeStore{reward: expected}
+	random := bytes.NewReader([]byte{
+		0, 1, 2, 3, 4, 5, 6, 7,
+		8, 9, 10, 11, 12, 13, 14, 15,
+		1, 2, 3, 4, 5, 6, 7, 8,
+	})
+	service, err := NewService(ServiceConfig{
+		Store:  store,
+		Core:   fakeCore{},
+		Now:    func() time.Time { return now },
+		Random: random,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	response, err := service.ClaimReward(context.Background(), activityPlayerID)
+	if err != nil {
+		t.Fatalf("ClaimReward: %v", err)
+	}
+	if !reflect.DeepEqual(response, expected) || len(store.claims) != 1 {
+		t.Fatalf("response/claims = %#v/%#v", response, store.claims)
+	}
+	claim := store.claims[0]
+	if claim.PlayerID != activityPlayerID ||
+		claim.CardID != "00010203-0405-4607-8809-0a0b0c0d0e0f" ||
+		claim.Seed != 0x0102030405060708 ||
+		!claim.Now.Equal(now) {
+		t.Fatalf("claim = %#v", claim)
+	}
+	_, err = service.ClaimReward(context.Background(), "")
 	assertActivityErrorCode(t, err, "identity_invalid")
 }
 

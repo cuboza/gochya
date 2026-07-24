@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{genome::Element, heart::HeartRateEvidence};
+use crate::{
+    genome::Element,
+    heart::HeartRateEvidence,
+    rng::{rng_new, rng_range},
+};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[repr(u8)]
@@ -139,13 +143,122 @@ pub fn derive_technique_stats(
         base_damage: power_rating
             * unit_interval(metrics.precision)
             * type_multiplier(metrics.technique_type)
-            * level,
+            * level
+            * 100.0_f32,
         speed: 100.0_f32 / (1.0_f32 + execution_time),
         stamina_cost: (power_rating * 2.2_f32)
             .round()
             .clamp(0.0, f32::from(u16::MAX)) as u16,
         crit_chance: crit_chance(metrics),
         quality,
+    }
+}
+
+/// Generates a server-authoritative Technique Card reward from an explicit seed.
+///
+/// The caller selects the source-specific rarity ceiling. Game-loot sources are
+/// intentionally limited to Epic or below; Legendary and Mythic remain Dojo
+/// and gacha territory.
+#[must_use]
+pub fn generate_loot_technique_stats(seed: u64, max_rarity: Rarity) -> TechniqueStats {
+    let rarity_cap = (max_rarity as u8).min(Rarity::Epic as u8);
+    let mut rng = rng_new(seed);
+    let rarity = loot_rarity(rng_range(&mut rng, 0, 99), rarity_cap);
+    // Effect-less Block cards are not emitted until loot effects are part of
+    // the persisted card contract.
+    let type_ = technique_type_from_roll(rng_range(&mut rng, 0, 5));
+    let (quality_min, quality_max) = rarity_quality_bounds(rarity);
+    let quality = rng_range(&mut rng, u32::from(quality_min), u32::from(quality_max)) as u8;
+    let speed_jitter = rng_range(&mut rng, 0, 10) as f32 - 5.0_f32;
+    let crit_jitter = rng_range(&mut rng, 0, 30) as f32 / 1_000.0_f32;
+
+    TechniqueStats {
+        type_,
+        rarity,
+        base_damage: (80.0_f32 + f32::from(quality)) * type_multiplier(type_),
+        speed: (technique_base_speed(type_) + speed_jitter).max(1.0),
+        stamina_cost: technique_stamina_cost(type_),
+        crit_chance: (0.03_f32 + f32::from(quality) / 1_000.0_f32 + crit_jitter).clamp(0.0, 0.35),
+        quality,
+    }
+}
+
+const fn loot_rarity(roll: u32, max_rarity: u8) -> Rarity {
+    match max_rarity {
+        0 => Rarity::Common,
+        1 => {
+            if roll < 70 {
+                Rarity::Common
+            } else {
+                Rarity::Uncommon
+            }
+        }
+        2 => {
+            if roll < 60 {
+                Rarity::Common
+            } else if roll < 90 {
+                Rarity::Uncommon
+            } else {
+                Rarity::Rare
+            }
+        }
+        _ => {
+            if roll < 50 {
+                Rarity::Common
+            } else if roll < 80 {
+                Rarity::Uncommon
+            } else if roll < 95 {
+                Rarity::Rare
+            } else {
+                Rarity::Epic
+            }
+        }
+    }
+}
+
+const fn rarity_quality_bounds(rarity: Rarity) -> (u8, u8) {
+    match rarity {
+        Rarity::Common => (30, 39),
+        Rarity::Uncommon => (40, 54),
+        Rarity::Rare => (55, 69),
+        Rarity::Epic => (70, 84),
+        Rarity::Legendary => (85, 94),
+        Rarity::Mythic => (95, 100),
+    }
+}
+
+const fn technique_type_from_roll(roll: u32) -> TechniqueType {
+    match roll {
+        0 => TechniqueType::Jab,
+        1 => TechniqueType::Hook,
+        2 => TechniqueType::Uppercut,
+        3 => TechniqueType::Cross,
+        4 => TechniqueType::Kick,
+        _ => TechniqueType::Elbow,
+    }
+}
+
+const fn technique_base_speed(technique_type: TechniqueType) -> f32 {
+    match technique_type {
+        TechniqueType::Jab => 82.0,
+        TechniqueType::Hook => 66.0,
+        TechniqueType::Uppercut => 56.0,
+        TechniqueType::Cross => 62.0,
+        TechniqueType::Kick => 50.0,
+        TechniqueType::Elbow => 72.0,
+        TechniqueType::Block => 76.0,
+    }
+}
+
+const fn technique_stamina_cost(technique_type: TechniqueType) -> u16 {
+    match technique_type {
+        TechniqueType::Jab => 6,
+        TechniqueType::Hook => 9,
+        TechniqueType::Uppercut => 12,
+        TechniqueType::Cross => 11,
+        TechniqueType::Kick => 14,
+        TechniqueType::Elbow => 10,
+        TechniqueType::Block => 7,
     }
 }
 
@@ -248,10 +361,32 @@ mod tests {
         let stats = derive_technique_stats(&metrics, &heart(), 1.0);
         assert_eq!(stats.type_, TechniqueType::Hook);
         assert_eq!(stats.rarity, Rarity::Rare);
-        assert!((stats.base_damage - 1.04).abs() < 0.000_01);
+        assert!((stats.base_damage - 104.0).abs() < 0.000_01);
         assert!((stats.speed - 66.666_664).abs() < 0.000_01);
         assert_eq!(stats.stamina_cost, 3);
         assert!((stats.crit_chance - 0.0625).abs() < 0.000_01);
         assert_eq!(stats.quality, 64);
+    }
+
+    #[test]
+    fn game_loot_is_deterministic_and_respects_rare_cap() {
+        let stats = generate_loot_technique_stats(42, Rarity::Rare);
+        assert_eq!(stats, generate_loot_technique_stats(42, Rarity::Rare));
+        assert!((stats.rarity as u8) <= Rarity::Rare as u8);
+        assert!((0..=5).contains(&(stats.type_ as u8)));
+        assert_eq!(rarity_from_quality(stats.quality), stats.rarity);
+        assert_eq!(stats.type_, TechniqueType::Elbow);
+        assert_eq!(stats.rarity, Rarity::Common);
+        assert_eq!(stats.quality, 35);
+        assert_eq!(stats.base_damage, 126.5);
+        assert!((0.0..=0.35).contains(&stats.crit_chance));
+    }
+
+    #[test]
+    fn game_loot_never_exceeds_epic() {
+        for seed in 0..10_000 {
+            let stats = generate_loot_technique_stats(seed, Rarity::Mythic);
+            assert!((stats.rarity as u8) <= Rarity::Epic as u8);
+        }
     }
 }

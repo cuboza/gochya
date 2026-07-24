@@ -3,6 +3,7 @@ package activity
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gochya/gochya/server/internal/corebridge"
+	"github.com/gochya/gochya/server/internal/dojo"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -309,6 +311,192 @@ func (s *PostgresStore) Week(
 		return nil, fmt.Errorf("iterate weekly activity: %w", err)
 	}
 	return response, nil
+}
+
+func (s *PostgresStore) ClaimReward(
+	ctx context.Context,
+	input RewardClaim,
+	core corebridge.LootEngine,
+) (RewardResponse, error) {
+	now := input.Now.UTC().Truncate(time.Microsecond)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return RewardResponse{}, fmt.Errorf("begin activity reward: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	timezone, _, _, err := lockActivityPlayer(ctx, tx, input.PlayerID)
+	if err != nil {
+		return RewardResponse{}, err
+	}
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return RewardResponse{}, fmt.Errorf("load player timezone %q: %w", timezone, err)
+	}
+	activityDate := localDay(now, location).Format(time.DateOnly)
+	existing, found, err := lockedActivityReward(
+		ctx,
+		tx,
+		input.PlayerID,
+		activityDate,
+	)
+	if err != nil {
+		return RewardResponse{}, err
+	}
+	if found {
+		if err := tx.Commit(ctx); err != nil {
+			return RewardResponse{}, fmt.Errorf("commit repeated activity reward: %w", err)
+		}
+		existing.Awarded = false
+		return existing, nil
+	}
+
+	var petID string
+	var vitality uint16
+	err = tx.QueryRow(
+		ctx,
+		`SELECT pet_id::text, vitality_total
+		   FROM daily_activity
+		  WHERE player_id = $1 AND activity_date = $2
+		  FOR UPDATE`,
+		input.PlayerID,
+		activityDate,
+	).Scan(&petID, &vitality)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RewardResponse{}, ErrActivityRequired
+	}
+	if err != nil {
+		return RewardResponse{}, fmt.Errorf("lock reward activity: %w", err)
+	}
+	if vitality < ActivityRewardVitality {
+		return RewardResponse{}, ErrRewardLocked
+	}
+
+	var genomeJSON []byte
+	err = tx.QueryRow(
+		ctx,
+		`SELECT genome
+		   FROM pets
+		  WHERE owner_id = $1 AND id = $2
+		  FOR SHARE`,
+		input.PlayerID,
+		petID,
+	).Scan(&genomeJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RewardResponse{}, ErrActivePetRequired
+	}
+	if err != nil {
+		return RewardResponse{}, fmt.Errorf("lock reward pet: %w", err)
+	}
+	element, err := activityElement(genomeJSON)
+	if err != nil {
+		return RewardResponse{}, ErrPetStateInvalid
+	}
+	stats, err := core.GenerateLootTechnique(ctx, input.Seed, 2)
+	if err != nil {
+		return RewardResponse{}, fmt.Errorf("generate activity reward card: %w", err)
+	}
+	card := dojo.TechniqueCard{
+		ID:          input.CardID,
+		OwnerID:     input.PlayerID,
+		Type:        stats.TechniqueType,
+		Element:     element,
+		Rarity:      stats.Rarity,
+		BaseDamage:  stats.BaseDamage,
+		Speed:       stats.Speed,
+		StaminaCost: stats.StaminaCost,
+		CritChance:  stats.CritChance,
+		Quality:     stats.Quality,
+		CreatedAt:   now,
+	}
+	cardJSON, err := json.Marshal(card)
+	if err != nil {
+		return RewardResponse{}, fmt.Errorf("encode activity reward card: %w", err)
+	}
+	if _, err := tx.Exec(
+		ctx,
+		`INSERT INTO technique_cards (
+		     id, owner_id, card_data, is_equipped, is_signature, created_at
+		 ) VALUES ($1, $2, $3, FALSE, FALSE, $4)`,
+		card.ID,
+		input.PlayerID,
+		cardJSON,
+		now,
+	); err != nil {
+		return RewardResponse{}, fmt.Errorf("insert activity reward card: %w", err)
+	}
+	seedBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(seedBytes, input.Seed)
+	if _, err := tx.Exec(
+		ctx,
+		`INSERT INTO activity_card_rewards (
+		     player_id, activity_date, card_id, seed, created_at
+		 ) VALUES ($1, $2, $3, $4, $5)`,
+		input.PlayerID,
+		activityDate,
+		card.ID,
+		seedBytes,
+		now,
+	); err != nil {
+		return RewardResponse{}, fmt.Errorf("insert activity reward audit: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return RewardResponse{}, fmt.Errorf("commit activity reward: %w", err)
+	}
+	return RewardResponse{
+		Date:    activityDate,
+		Card:    card,
+		Awarded: true,
+	}, nil
+}
+
+func lockedActivityReward(
+	ctx context.Context,
+	tx pgx.Tx,
+	playerID string,
+	activityDate string,
+) (RewardResponse, bool, error) {
+	var (
+		cardID    string
+		cardJSON  []byte
+		createdAt time.Time
+		seedBytes []byte
+	)
+	err := tx.QueryRow(
+		ctx,
+		`SELECT rewards.card_id::text,
+		        rewards.seed,
+		        cards.card_data,
+		        cards.created_at
+		   FROM activity_card_rewards rewards
+		   JOIN technique_cards cards ON cards.id = rewards.card_id
+		  WHERE rewards.player_id = $1 AND rewards.activity_date = $2
+		  FOR UPDATE OF rewards, cards`,
+		playerID,
+		activityDate,
+	).Scan(&cardID, &seedBytes, &cardJSON, &createdAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RewardResponse{}, false, nil
+	}
+	if err != nil {
+		return RewardResponse{}, false, fmt.Errorf("lock activity reward: %w", err)
+	}
+	if len(seedBytes) != 8 {
+		return RewardResponse{}, false, errors.New("activity reward seed is invalid")
+	}
+	var card dojo.TechniqueCard
+	if err := json.Unmarshal(cardJSON, &card); err != nil {
+		return RewardResponse{}, false, fmt.Errorf("decode activity reward card: %w", err)
+	}
+	card.ID = cardID
+	card.OwnerID = playerID
+	card.CreatedAt = createdAt.UTC()
+	return RewardResponse{
+		Date: activityDate,
+		Card: card,
+	}, true, nil
 }
 
 func decodeStoredSnapshot(data []byte, output *Snapshot) error {

@@ -40,8 +40,23 @@ func TestNativeEngineCallsRustCore(t *testing.T) {
 		stats.StaminaCost != 3 {
 		t.Fatalf("stats = %#v", stats)
 	}
-	if difference := stats.BaseDamage - 1.04; difference < -0.00001 || difference > 0.00001 {
+	if difference := stats.BaseDamage - 104; difference < -0.00001 || difference > 0.00001 {
 		t.Fatalf("base damage = %f", stats.BaseDamage)
+	}
+	loot, err := engine.GenerateLootTechnique(context.Background(), 42, 2)
+	if err != nil {
+		t.Fatalf("GenerateLootTechnique: %v", err)
+	}
+	repeatedLoot, err := engine.GenerateLootTechnique(context.Background(), 42, 2)
+	if err != nil {
+		t.Fatalf("repeat GenerateLootTechnique: %v", err)
+	}
+	if !reflect.DeepEqual(loot, repeatedLoot) ||
+		loot.TechniqueType != 5 ||
+		loot.Rarity != 0 ||
+		loot.Quality != 35 ||
+		loot.BaseDamage != 126.5 {
+		t.Fatalf("loot = %#v, repeated = %#v", loot, repeatedLoot)
 	}
 }
 

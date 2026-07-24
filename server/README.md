@@ -25,7 +25,9 @@
 - `POST /v1/sync/activity` принимает нормализованный дневной health snapshot,
   вычисляет adaptive goals, vitality и stat gains через Rust Core и применяет
   только ещё не начисленную дельту; `GET /v1/me/activity/week` возвращает
-  текущему игроку семь local-calendar days в хронологическом порядке;
+  текущему игроку семь local-calendar days в хронологическом порядке, а
+  `POST /v1/me/activity/reward` после 100 Vitality один раз выдаёт
+  детерминированную server-loot карту до Rare;
 - активная стихия, владелец, ID и время создания назначаются сервером.
 
 `internal/dojo.MemoryStore` — конкурентно-безопасная эталонная реализация для
@@ -89,6 +91,8 @@ Goals считаются Rust Core из среднего предыдущих 14
 коррекции snapshot вниз; stat gains, включая отрицательный FOC, приводятся к
 новому дневному total с защитой pet stat от выхода ниже нуля. Миграция `000010`
 хранит canonical snapshot, fingerprint, totals и фактически применённые gains.
+Миграция `000011` связывает единственную дневную reward-карту с activity row и
+хранит её seed; player lock сериализует конкурентные claims.
 
 `JWTAuthenticator` проверяет Ed25519 access token, фиксированный алгоритм,
 `kid`, issuer/audience, обязательные `exp`/`iat`/`jti`, `token_use=access` и

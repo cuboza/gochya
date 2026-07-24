@@ -574,6 +574,9 @@ pub fn rarity_from_quality(q: u8) -> Rarity;
 pub fn create_technique_card(
     m: &PunchMetrics, e: &HeartRateEvidence, owner: &[u8;16], ts: u64, rng: &mut Rng,
 ) -> TechniqueCard;
+pub fn generate_loot_technique_stats(
+    seed: u64, max_rarity: Rarity,
+) -> TechniqueStats; // game loot; фактический cap Epic
 
 // audit C2: helper-функции, используемые в quality_score (CORE_FORMULAS §2)
 pub fn norm_power(peak_accel_mps2: f32) -> f32;             // → [0, 1]

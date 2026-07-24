@@ -3,8 +3,11 @@ package activity
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -198,12 +201,159 @@ func TestPostgresActivitySyncIsAtomicAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestPostgresActivityRewardIsAtomicAndNaturallyIdempotent(t *testing.T) {
+	databaseURL := os.Getenv("GOCHYA_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("GOCHYA_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	pool := activityPostgresTestPool(t, ctx, databaseURL)
+	now := time.Date(2026, time.July, 24, 8, 30, 0, 0, time.UTC)
+	seedActivityData(t, ctx, pool, now)
+	store, err := NewPostgresStore(pool)
+	if err != nil {
+		t.Fatalf("NewPostgresStore: %v", err)
+	}
+	core := &integrationActivityCore{}
+	if _, err := store.ClaimReward(ctx, RewardClaim{
+		PlayerID: activityPlayerID,
+		CardID:   "30000000-0000-4000-8000-000000000000",
+		Seed:     1,
+		Now:      now,
+	}, core); !errors.Is(err, ErrActivityRequired) {
+		t.Fatalf("missing-activity ClaimReward error = %v", err)
+	}
+	if _, err := store.Sync(ctx, activityCommit(now, 5_000, 1), core); err != nil {
+		t.Fatalf("low-vitality Sync: %v", err)
+	}
+	if _, err := store.ClaimReward(ctx, RewardClaim{
+		PlayerID: activityPlayerID,
+		CardID:   "30000000-0000-4000-8000-000000000000",
+		Seed:     1,
+		Now:      now,
+	}, core); !errors.Is(err, ErrRewardLocked) {
+		t.Fatalf("low-vitality ClaimReward error = %v", err)
+	}
+	if _, err := store.Sync(ctx, activityCommit(now, 10_000, 2), core); err != nil {
+		t.Fatalf("eligible Sync: %v", err)
+	}
+
+	const concurrency = 8
+	responses := make([]RewardResponse, concurrency)
+	failures := make([]error, concurrency)
+	var group sync.WaitGroup
+	for index := range responses {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			responses[index], failures[index] = store.ClaimReward(ctx, RewardClaim{
+				PlayerID: activityPlayerID,
+				CardID: fmt.Sprintf(
+					"30000000-0000-4000-8000-%012d",
+					index+1,
+				),
+				Seed: uint64(100 + index),
+				Now:  now,
+			}, core)
+		}()
+	}
+	group.Wait()
+	awarded := 0
+	var awardedCardID string
+	var awardedSeed uint64
+	for index, response := range responses {
+		if failures[index] != nil {
+			t.Fatalf("claim %d: %v", index, failures[index])
+		}
+		if response.Date != "2026-07-24" ||
+			response.Card.OwnerID != activityPlayerID ||
+			response.Card.Element != 2 ||
+			response.Card.Rarity != 2 ||
+			response.Card.BaseDamage != 180 ||
+			response.Card.Quality != 60 {
+			t.Fatalf("claim %d response = %#v", index, response)
+		}
+		if response.Awarded {
+			awarded++
+			awardedCardID = response.Card.ID
+			awardedSeed = uint64(100 + index)
+		} else if awardedCardID != "" && response.Card.ID != awardedCardID {
+			t.Fatalf("claim %d returned card %q, want %q", index, response.Card.ID, awardedCardID)
+		}
+	}
+	if awarded != 1 || core.lootCalls.Load() != 1 {
+		t.Fatalf("awarded/core calls = %d/%d", awarded, core.lootCalls.Load())
+	}
+	for index, response := range responses {
+		if response.Card.ID != awardedCardID {
+			t.Fatalf("claim %d returned card %q, want %q", index, response.Card.ID, awardedCardID)
+		}
+	}
+
+	var cardCount, rewardCount int
+	var storedSeed []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT (SELECT COUNT(*) FROM technique_cards WHERE owner_id = $1),
+		        (SELECT COUNT(*) FROM activity_card_rewards WHERE player_id = $1),
+		        (SELECT seed FROM activity_card_rewards WHERE player_id = $1)`,
+		activityPlayerID,
+	).Scan(&cardCount, &rewardCount, &storedSeed); err != nil {
+		t.Fatalf("query activity reward state: %v", err)
+	}
+	if cardCount != 1 ||
+		rewardCount != 1 ||
+		len(storedSeed) != 8 ||
+		binary.BigEndian.Uint64(storedSeed) != awardedSeed {
+		t.Fatalf(
+			"reward state cards/rewards/seed = %d/%d/%x",
+			cardCount,
+			rewardCount,
+			storedSeed,
+		)
+	}
+	if _, err := store.Sync(ctx, activityCommit(now, 5_000, 3), core); err != nil {
+		t.Fatalf("corrected-after-reward Sync: %v", err)
+	}
+	repeated, err := store.ClaimReward(ctx, RewardClaim{
+		PlayerID: activityPlayerID,
+		CardID:   "30000000-0000-4000-8000-999999999999",
+		Seed:     999,
+		Now:      now,
+	}, core)
+	if err != nil {
+		t.Fatalf("repeat ClaimReward: %v", err)
+	}
+	if repeated.Awarded || repeated.Card.ID != awardedCardID || core.lootCalls.Load() != 1 {
+		t.Fatalf("repeated reward/core calls = %#v/%d", repeated, core.lootCalls.Load())
+	}
+}
+
 type integrationActivityCore struct {
 	goalCalls     atomic.Int32
 	activityCalls atomic.Int32
+	lootCalls     atomic.Int32
 	mu            sync.Mutex
 	baseline      corebridge.ActivityBaseline
 	streaks       []uint32
+}
+
+func (c *integrationActivityCore) GenerateLootTechnique(
+	_ context.Context,
+	_ uint64,
+	maxRarity uint8,
+) (corebridge.TechniqueStats, error) {
+	c.lootCalls.Add(1)
+	return corebridge.TechniqueStats{
+		TechniqueType: 1,
+		Rarity:        maxRarity,
+		BaseDamage:    180,
+		Speed:         65,
+		StaminaCost:   9,
+		CritChance:    0.12,
+		Quality:       60,
+	}, nil
 }
 
 func (c *integrationActivityCore) ComputeGoals(

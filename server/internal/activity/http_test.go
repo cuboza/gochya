@@ -94,6 +94,52 @@ func TestHTTPWeeklyActivity(t *testing.T) {
 	}
 }
 
+func TestHTTPActivityReward(t *testing.T) {
+	now := time.Date(2026, time.July, 24, 8, 30, 0, 0, time.UTC)
+	expected := RewardResponse{
+		Date:    "2026-07-24",
+		Awarded: true,
+		Card: dojo.TechniqueCard{
+			ID:          "22222222-2222-4222-8222-222222222222",
+			OwnerID:     activityPlayerID,
+			Type:        1,
+			Element:     2,
+			Rarity:      2,
+			BaseDamage:  180,
+			Speed:       65,
+			StaminaCost: 9,
+			CritChance:  0.12,
+			Quality:     60,
+			CreatedAt:   now,
+		},
+	}
+	store := &fakeStore{reward: expected}
+	routes := activityRoutes(t, store, now)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/me/activity/reward",
+		nil,
+	)
+	request.Header.Set("X-Player-ID", activityPlayerID)
+	recorder := httptest.NewRecorder()
+
+	routes.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+	}
+	var response RewardResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode activity reward: %v", err)
+	}
+	if response.Date != expected.Date ||
+		!response.Awarded ||
+		response.Card.ID != expected.Card.ID ||
+		len(store.claims) != 1 {
+		t.Fatalf("response/claims = %#v/%#v", response, store.claims)
+	}
+}
+
 func TestHTTPActivitySyncBoundaries(t *testing.T) {
 	now := time.Date(2026, time.July, 24, 8, 30, 0, 0, time.UTC)
 	validBody, err := json.Marshal(validSyncRequest(now))
@@ -175,6 +221,38 @@ func TestHTTPActivitySyncBoundaries(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "invalid_query",
 		},
+		{
+			name:       "reward authentication required",
+			method:     http.MethodPost,
+			target:     "/v1/me/activity/reward",
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "unauthenticated",
+		},
+		{
+			name:       "reward method rejected",
+			method:     http.MethodGet,
+			target:     "/v1/me/activity/reward",
+			auth:       true,
+			wantStatus: http.StatusMethodNotAllowed,
+			wantCode:   "method_not_allowed",
+		},
+		{
+			name:       "reward query rejected",
+			method:     http.MethodPost,
+			target:     "/v1/me/activity/reward?date=2026-07-24",
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_query",
+		},
+		{
+			name:       "reward body rejected",
+			method:     http.MethodPost,
+			target:     "/v1/me/activity/reward",
+			body:       []byte(`{}`),
+			auth:       true,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_body",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -214,9 +292,10 @@ func activityRoutes(
 ) http.Handler {
 	t.Helper()
 	service, err := NewService(ServiceConfig{
-		Store: store,
-		Core:  fakeCore{},
-		Now:   func() time.Time { return now },
+		Store:  store,
+		Core:   fakeCore{},
+		Now:    func() time.Time { return now },
+		Random: bytes.NewReader(make([]byte, 128)),
 	})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)

@@ -70,6 +70,62 @@ func (NativeEngine) DeriveTechnique(
 	}, nil
 }
 
+func (NativeEngine) GenerateLootTechnique(
+	ctx context.Context,
+	seed uint64,
+	maxRarity uint8,
+) (TechniqueStats, error) {
+	select {
+	case <-ctx.Done():
+		return TechniqueStats{}, ctx.Err()
+	default:
+	}
+	var output C.GochyaTechniqueStatsV1
+	status := C.gochya_generate_loot_technique_v1(
+		C.uint64_t(seed),
+		C.uint8_t(maxRarity),
+		&output,
+	)
+	if status != C.GochyaStatus_Ok {
+		return TechniqueStats{}, fmt.Errorf(
+			"generate loot technique: core status %d",
+			int32(status),
+		)
+	}
+	baseDamage := float32(output.base_damage)
+	speed := float32(output.speed)
+	critChance := float32(output.crit_chance)
+	if output.struct_size != C.uint32_t(unsafe.Sizeof(output)) ||
+		output.schema_version != schemaVersion ||
+		output.technique_type > 5 ||
+		output.rarity > C.uint8_t(maxRarity) ||
+		output.rarity > 3 ||
+		output.quality > 100 ||
+		math.IsNaN(float64(baseDamage)) ||
+		math.IsInf(float64(baseDamage), 0) ||
+		baseDamage < 0 ||
+		math.IsNaN(float64(speed)) ||
+		math.IsInf(float64(speed), 0) ||
+		speed < 0 ||
+		math.IsNaN(float64(critChance)) ||
+		math.IsInf(float64(critChance), 0) ||
+		critChance < 0 ||
+		critChance > 0.35 {
+		return TechniqueStats{}, fmt.Errorf(
+			"generate loot technique: invalid core output envelope",
+		)
+	}
+	return TechniqueStats{
+		TechniqueType: uint8(output.technique_type),
+		Rarity:        uint8(output.rarity),
+		BaseDamage:    baseDamage,
+		Speed:         speed,
+		StaminaCost:   uint16(output.stamina_cost),
+		CritChance:    critChance,
+		Quality:       uint8(output.quality),
+	}, nil
+}
+
 func (NativeEngine) ComputeActivity(
 	ctx context.Context,
 	snapshot ActivitySnapshot,

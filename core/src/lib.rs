@@ -32,6 +32,7 @@ pub use synergy::{
 };
 pub use technique::{
     Effect, EffectKind, PunchMetrics, Rarity, TechniqueCard, TechniqueStats, TechniqueType,
-    combo_score, crit_chance, derive_technique_stats, muscle_memory_bonus, norm_power,
-    quality_score, rarity_from_quality, tech_card_bonus, type_multiplier,
+    combo_score, crit_chance, derive_technique_stats, generate_loot_technique_stats,
+    muscle_memory_bonus, norm_power, quality_score, rarity_from_quality, tech_card_bonus,
+    type_multiplier,
 };

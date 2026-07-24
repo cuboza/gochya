@@ -321,6 +321,7 @@ func run() error {
 	activityRoutes := activityAPI.Routes()
 	application.Handle("/v1/sync/activity", activityRoutes)
 	application.Handle("/v1/me/activity/week", activityRoutes)
+	application.Handle("/v1/me/activity/reward", activityRoutes)
 	application.Handle("/", api.Routes())
 
 	server := &http.Server{

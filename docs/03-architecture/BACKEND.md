@@ -707,6 +707,7 @@ GET    /me/season-progress                               → SeasonProgress
 ```
 POST   /sync/activity         { snapshot, sourceMetadata } → { vitality, statGains }
 GET    /me/activity/week                                   → DailyActivity[]
+POST   /me/activity/reward                                 → { date, card, awarded }
 ```
 
 Реализованный `POST /v1/sync/activity` принимает snapshot schema `1`:
@@ -733,6 +734,14 @@ reconcile'ятся до нового дневного total, причём фак
 stat gains, goals, source metadata и UTC `updatedAt`; fingerprint и внутренний
 `stat_gains_applied` клиенту не раскрываются. Дни без sync не заполняются
 синтетическими нулевыми объектами.
+
+`POST /v1/me/activity/reward` с пустым body выдаёт карту после достижения
+100 Vitality за текущий локальный день. Потолок редкости — Rare. UUID и seed
+создаёт сервер, stats детерминированно вычисляет Rust Core, а карта, seed и
+связь с `daily_activity` сохраняются в одной транзакции. Первичный ответ имеет
+`awarded: true`; любой последовательный или конкурентный повтор возвращает ту
+же карту с `awarded: false`, не создавая вторую строку inventory. Исправление
+activity snapshot ниже 100 после уже состоявшейся выдачи карту не отзывает.
 
 > ⚠️ Поле называлось `deviceSig`, что подразумевало криптографическую подпись.
 > Её не существует: HealthKit и Samsung Health подписанных агрегатов сторонним

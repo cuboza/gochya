@@ -235,6 +235,10 @@ GochyaStatus gochya_derive_technique_v1(const struct GochyaPunchMetricsV1 *metri
                                         float tech_level,
                                         struct GochyaTechniqueStatsV1 *out_stats);
 
+GochyaStatus gochya_generate_loot_technique_v1(uint64_t seed,
+                                               uint8_t max_rarity,
+                                               struct GochyaTechniqueStatsV1 *out_stats);
+
 GochyaStatus gochya_simulate_combat_v1(const struct GochyaCombatMatchV1 *match_,
                                        uint64_t seed,
                                        struct GochyaCombatResultV1 *out_result);

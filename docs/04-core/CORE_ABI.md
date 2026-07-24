@@ -10,7 +10,7 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
-Текущая реализация: ABI `1.3.0` (`0x00010300`), schema `1`. Сгенерированный
+Текущая реализация: ABI `2.0.0` (`0x00020000`), schema `1`. Сгенерированный
 artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
 `cbindgen` при каждой сборке.
 
@@ -118,6 +118,7 @@ enum {
 - `gochya_compute_goals_v1`;
 - `gochya_compute_activity_v1`;
 - `gochya_derive_technique_v1`;
+- `gochya_generate_loot_technique_v1`;
 - `gochya_simulate_combat_v1`.
 
 Все операции используют versioned структуры со `struct_size`, проверяют null,
@@ -127,6 +128,10 @@ harness находится в `core/tests/abi_smoke.c`, а серверный co
 `server/internal/corebridge`. `gochya_derive_technique_v1` атомарно возвращает
 тип, редкость, урон, скорость, stamina cost, crit chance и quality, чтобы сервер
 не дублировал формулы карты.
+
+`gochya_generate_loot_technique_v1(seed, max_rarity, out_stats)` возвращает тот
+же `GochyaTechniqueStatsV1` для server-authoritative игровой добычи.
+`max_rarity` принимает Common…Epic; Legendary/Mythic отклоняются.
 
 ## 11. Activity V1 wire schema
 
@@ -172,6 +177,14 @@ gain или resonance. В gains участвуют только первые т�
 Добавлены `GochyaPersonalBaselineV1` и `gochya_compute_goals_v1`; существующие
 activity payloads и функции не изменены. Серверу с adaptive goals требуется
 `gochya_abi_version() >= 0x00010300`.
+
+### Миграция 1.3.0 → 2.0.0
+
+Добавлен `gochya_generate_loot_technique_v1`; существующие структуры и symbols
+не изменены. Одновременно `base_damage` Dojo-карты приведён к combat-шкале
+множителем 100 — это исправление значения результата существующей функции,
+поэтому ABI major повышен согласно правилам §1, а consumers должны обновить
+проверку версии и golden fixtures.
 
 ## 12. Combat V1 wire schema
 

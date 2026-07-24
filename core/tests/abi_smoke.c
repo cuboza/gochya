@@ -6,7 +6,7 @@
 #include <string.h>
 
 int main(void) {
-  assert(gochya_abi_version() == UINT32_C(0x00010300));
+  assert(gochya_abi_version() == UINT32_C(0x00020000));
   assert(sizeof(GochyaPunchMetricsV1) == 40);
   assert(sizeof(GochyaHeartEvidenceV1) == 36);
   assert(sizeof(GochyaHeartVerdictV1) == 28);
@@ -56,11 +56,23 @@ int main(void) {
   assert(gochya_derive_technique_v1(&metrics, &heart, 1.0f, &stats) == GochyaStatus_Ok);
   assert(stats.technique_type == 1);
   assert(stats.rarity == 2);
-  assert(fabsf(stats.base_damage - 1.04f) < 0.00001f);
+  assert(fabsf(stats.base_damage - 104.0f) < 0.00001f);
   assert(fabsf(stats.speed - 66.666664f) < 0.00001f);
   assert(stats.stamina_cost == 3);
   assert(fabsf(stats.crit_chance - 0.0625f) < 0.00001f);
   assert(stats.quality == 64);
+
+  GochyaTechniqueStatsV1 loot_stats;
+  memset(&loot_stats, 0, sizeof(loot_stats));
+  assert(gochya_generate_loot_technique_v1(42, 2, &loot_stats) == GochyaStatus_Ok);
+  assert(loot_stats.struct_size == sizeof(loot_stats));
+  assert(loot_stats.schema_version == 1);
+  assert(loot_stats.technique_type == 5);
+  assert(loot_stats.rarity == 0);
+  assert(fabsf(loot_stats.base_damage - 126.5f) < 0.00001f);
+  assert(loot_stats.quality == 35);
+  assert(gochya_generate_loot_technique_v1(42, 4, &loot_stats) ==
+         GochyaStatus_InvalidArgument);
 
   GochyaDailyActivityV1 activity;
   memset(&activity, 0, sizeof(activity));

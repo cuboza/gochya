@@ -42,6 +42,7 @@ func (h *HTTPHandler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/sync/activity", h.sync)
 	mux.HandleFunc("/v1/me/activity/week", h.week)
+	mux.HandleFunc("/v1/me/activity/reward", h.reward)
 	return mux
 }
 
@@ -119,6 +120,48 @@ func (h *HTTPHandler) week(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	response, err := h.service.Week(request.Context(), playerID)
+	if err != nil {
+		h.writeError(writer, requestID, err)
+		return
+	}
+	h.writeJSON(writer, http.StatusOK, response)
+}
+
+func (h *HTTPHandler) reward(writer http.ResponseWriter, request *http.Request) {
+	requestID := h.prepare(writer)
+	if request.Method != http.MethodPost {
+		h.writeError(
+			writer,
+			requestID,
+			apiError("method_not_allowed", "method is not allowed", http.StatusMethodNotAllowed),
+		)
+		return
+	}
+	if request.URL.RawQuery != "" {
+		h.writeError(
+			writer,
+			requestID,
+			apiError("invalid_query", "query parameters are invalid", http.StatusBadRequest),
+		)
+		return
+	}
+	playerID, err := h.authenticator.Authenticate(request)
+	if err != nil {
+		h.writeError(writer, requestID, err)
+		return
+	}
+	request.Body = http.MaxBytesReader(writer, request.Body, 1)
+	buffer := make([]byte, 1)
+	if count, err := request.Body.Read(buffer); err != nil && !errors.Is(err, io.EOF) ||
+		count != 0 {
+		h.writeError(
+			writer,
+			requestID,
+			apiError("invalid_body", "request body must be empty", http.StatusBadRequest),
+		)
+		return
+	}
+	response, err := h.service.ClaimReward(request.Context(), playerID)
 	if err != nil {
 		h.writeError(writer, requestID, err)
 		return

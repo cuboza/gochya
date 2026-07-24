@@ -33,6 +33,7 @@ include = [
   "gochya_compute_goals_v1",
   "gochya_compute_activity_v1",
   "gochya_derive_technique_v1",
+  "gochya_generate_loot_technique_v1",
   "gochya_simulate_combat_v1",
 ]
 item_types = ["enums", "structs", "functions"]
