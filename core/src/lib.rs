@@ -27,7 +27,8 @@ pub use rng::{Rng, rng_new, rng_next, rng_range};
 pub use serde_helpers::{SCHEMA_VERSION, SchemaEnvelope};
 pub use synergy::{
     DailyActivitySnapshot, DailyGoals, DataSource, MAX_VITALITY_PER_DAY, MAX_WORKOUTS,
-    PersonalBaseline, WorkoutSummary, compute_goals, compute_vitality, synergy_multiplier,
+    PersonalBaseline, StatGains, WorkoutKind, WorkoutSummary, compute_goals, compute_stat_gains,
+    compute_vitality, resonance_bonus, synergy_multiplier,
 };
 pub use technique::{
     Effect, EffectKind, PunchMetrics, Rarity, TechniqueCard, TechniqueStats, TechniqueType,

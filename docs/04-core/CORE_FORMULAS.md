@@ -263,6 +263,15 @@ dailyGain[FOC] = floor((meditationMin/15) * 3 + (sleepQuality/100) * 5 - (stress
 streakBonus = min(streak_days * 0.2, 3)
 ```
 
+В расчёт входят первые `min(workout_count, 3)` записей. Перед агрегацией минут
+каждой тренировки применяется её `1 + resonanceBonus(kind, element)`;
+resonance влияет только на минуты этой записи, но не умножает floors,
+`hrZoneHighMin`, sleep, stress или streak bonus. `cardioMin` включает Running,
+Cycling, Swimming и HIIT, `strengthWorkoutMin` — только Strength,
+`workoutDurationMin` — все известные и неизвестные типы. Итог каждого стата
+округляется вниз и насыщается в диапазон `i16`; `sleepQuality` и `stress`
+перед формулой ограничиваются `0..100`.
+
 ### 4.5. Synergy multiplier (стрик)
 ```
 synergyMultiplier(streak_days) =
@@ -276,6 +285,9 @@ resonanceBonus(workoutKind, element):
     // таблица: напр. Running + Fire = +10%
     return RESONANCE_TABLE[(workoutKind, element)] ?? 0   // обычно 0..0.10
 ```
+
+Стабильные protocol ID: Running=0, Cycling=1, Strength=2, Swimming=3, Yoga=4,
+Meditation=5, HIIT=6, Other=255. Неизвестный ID не получает resonance.
 
 ### 4.7. Базовый рост без активности
 ```

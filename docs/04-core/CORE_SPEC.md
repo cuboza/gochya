@@ -252,9 +252,21 @@ pub enum DataSource { Watch = 0, Phone = 1 }
 
 #[repr(C)]
 pub struct WorkoutSummary {
-    pub kind:      u8,    // running, cycling, strength, yoga, ...
+    pub kind:      u8,    // стабильный WorkoutKind ID ниже
     pub duration_min: u16,
     pub calories:    u16,
+}
+
+#[repr(u8)]
+pub enum WorkoutKind {
+    Running = 0,
+    Cycling = 1,
+    Strength = 2,
+    Swimming = 3,
+    Yoga = 4,
+    Meditation = 5,
+    Hiit = 6,
+    Other = 255,
 }
 
 #[repr(C)]

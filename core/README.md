@@ -6,7 +6,8 @@
 
 - доменные типы питомца, генома, Technique Card, активности и боя;
 - PCG-XSH-RR 64/32 с фиксированным stream;
-- heart gate, quality score, rarity, adaptive goals и vitality;
+- heart gate, quality score, rarity, adaptive goals, vitality и activity stat gains;
+- стабильные WorkoutKind ID и resonance-таблица тренировок/стихий;
 - MVP-таблица стихий и детерминированный casual combat;
 - versioned C ABI для heart/quality/vitality;
 - unit, property, invariant, golden и C ABI smoke tests.
@@ -25,4 +26,3 @@ GOCHYA_UPDATE_HEADER=1 cargo build -p gochya-core
 ```
 
 Аппаратные Gate 1–3 из `docs/07-roadmap/SPRINT0_GATES.md` эта сборка не закрывает.
-
