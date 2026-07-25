@@ -63,6 +63,12 @@
   Feed/Clean/Play/Sleep → `If-Match` → идемпотентный retry → canonical refresh.
 - [x] Добавить encrypted persistent offline queue, последовательный batch
   reconcile и account-bound очистку очереди.
+- [x] Подключить single-flight refresh rotation телефона: один защищённый
+  session-документ, один retry запроса и fail-closed неопределённый исход.
+- [x] Подключить нативный Google Sign-In на Android: ID token exchange через
+  backend, общий installation ID и fail-closed UI без OAuth-конфигурации.
+- [x] Подключить нативный Sign in with Apple на iOS: capability, одноразовый
+  server nonce, identity-token exchange и fail-closed provider availability.
 
 **Gate:** вертикальный Dojo-сценарий работает на реальном устройстве, а ключевые performance и security assumptions подтверждены измерениями.
 

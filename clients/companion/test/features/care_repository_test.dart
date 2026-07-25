@@ -1,9 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gochya_companion/core/device/installation_id_store.dart';
 import 'package:gochya_companion/core/models/care_models.dart';
 import 'package:gochya_companion/core/models/profile_models.dart';
 import 'package:gochya_companion/core/network/gochya_api_client.dart';
 import 'package:gochya_companion/features/care/care_queue_store.dart';
 import 'package:gochya_companion/features/care/care_repository.dart';
+import 'package:gochya_companion/features/session/session_request_runner.dart';
 
 void main() {
   test(
@@ -15,8 +17,9 @@ void main() {
       final intent = _intent('10000000-0000-4000-8000-000000000001');
       final firstRepository = ApiCareRepository(
         api: api,
-        deviceStore: const _DeviceStore(),
+        installationIdStore: const _DeviceStore(),
         queueStore: queueStore,
+        sessionRunner: const _PassThroughSessionRunner(),
       );
 
       final submitted = await firstRepository.submit(
@@ -36,8 +39,9 @@ void main() {
 
       final restartedRepository = ApiCareRepository(
         api: api,
-        deviceStore: const _DeviceStore(),
+        installationIdStore: const _DeviceStore(),
         queueStore: queueStore,
+        sessionRunner: const _PassThroughSessionRunner(),
       );
       final reconciled = await restartedRepository.reconcilePending(
         accountId: 'player-1',
@@ -59,8 +63,9 @@ void main() {
       final api = _RecordingCareApi(failRequests: 2);
       final repository = ApiCareRepository(
         api: api,
-        deviceStore: const _DeviceStore(),
+        installationIdStore: const _DeviceStore(),
         queueStore: queueStore,
+        sessionRunner: const _PassThroughSessionRunner(),
       );
       final first = _intent('10000000-0000-4000-8000-000000000001');
       final second = _intent(
@@ -114,8 +119,9 @@ void main() {
       );
       final repository = ApiCareRepository(
         api: api,
-        deviceStore: const _DeviceStore(),
+        installationIdStore: const _DeviceStore(),
         queueStore: queueStore,
+        sessionRunner: const _PassThroughSessionRunner(),
       );
       final first = _intent('10000000-0000-4000-8000-000000000001');
       final second = _intent(
@@ -250,12 +256,24 @@ class _MemoryQueueStorage implements CareQueueStorage {
   }
 }
 
-class _DeviceStore implements CareDeviceStore {
+class _DeviceStore implements InstallationIdStore {
   const _DeviceStore();
 
   @override
   Future<String> getOrCreate() async {
     return '30000000-0000-4000-8000-000000000001';
+  }
+}
+
+class _PassThroughSessionRunner implements AuthenticatedRequestRunner {
+  const _PassThroughSessionRunner();
+
+  @override
+  Future<T> run<T>({
+    required String accessToken,
+    required Future<T> Function(String accessToken) request,
+  }) {
+    return request(accessToken);
   }
 }
 

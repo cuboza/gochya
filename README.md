@@ -24,6 +24,19 @@ token-family reuse detection; Google ID token exchange создаёт или н�
 Samsung Account подключён через OIDC authorization-code flow: backend выдаёт
 state/nonce/PKCE challenge, сам обменивает одноразовый code с confidential
 client credentials и проверяет Samsung RS256 ID token.
+Flutter-клиент теперь использует этот refresh-контракт: параллельные `401`
+объединяются в одну rotation, новая пара сохраняется одним защищённым документом,
+а исходный запрос повторяется ровно один раз. Потерянный refresh-ответ,
+повторный `401` или ошибка записи завершают локальную сессию fail-closed без
+опасного повторного использования одноразового refresh token.
+Android-клиент также выполняет нативный Google Sign-In и передаёт backend только
+Google ID token вместе со стабильным installation ID. GOCHYA-сессия появляется
+лишь после успешного `POST /v1/auth/google`; без Web OAuth client ID кнопка входа
+скрыта fail-closed, ручного ввода bearer token нет.
+iOS-клиент выполняет нативный Sign in with Apple: получает одноразовый server
+nonce, передаёт его AuthenticationServices без преобразования и обменивает
+Apple identity token только через backend. Capability включён в Xcode project,
+а недоступный провайдер или невалидный nonce не создают локальную сессию.
 Wear OS device enrollment требует access token, одноразовый server challenge,
 proof-of-possession нового Ed25519-ключа и Play Integrity verdict, привязанный
 к тому же регистрационному payload. Challenge хранится только как SHA-256 и

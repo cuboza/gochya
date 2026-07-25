@@ -1,11 +1,16 @@
 import 'dart:convert';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../core/models/care_models.dart';
 import '../../core/models/profile_models.dart';
 
 const maxPendingCareCommands = 100;
+
+final careQueueStoreProvider = Provider<CareQueueStore>(
+  (ref) => SecureCareQueueStore(),
+);
 
 class CareQueue {
   const CareQueue({

@@ -67,8 +67,27 @@ revision; reconcile сохраняет порядок, разбивает пот
 остаётся в очереди, logout/смена `player.id` очищает старый журнал, а повреждённый
 payload не затирается автоматически. После определённого ответа клиент
 перечитывает canonical profile/pet snapshot; формул потребностей в Dart нет.
-Provider OAuth UI, refresh orchestration и Shared Core FFI остаются следующими
-срезами.
+Authenticated profile, onboarding и care boundaries используют общий
+single-flight refresh runner: первый `401` вызывает одну rotation, параллельные
+запросы ждут её, а затем каждый intent повторяется ровно один раз. Новые access
+и refresh tokens вместе со сроками сохраняются одним versioned документом
+Keychain/Keystore; прежние два ключа мигрируют при чтении. `refresh_token_invalid`,
+повторный `401`, ошибка локальной записи и неопределённый исход refresh очищают
+сессию и account-bound очередь fail-closed. Старый refresh после потери ответа
+не повторяется: backend уже мог его потребить, и retry вызвал бы reuse detection
+для всей family. Android использует нативный Google Sign-In: Web OAuth client ID
+передаётся через compile-time define, SDK выдаёт ID token, а клиент обменивает его
+на GOCHYA access/refresh pair через `POST /v1/auth/google`. Email и provider user
+ID не используются как доказательство личности, токены Google не записываются в
+session store, а без client ID кнопка fail-closed скрыта. iOS Google OAuth пока
+не включён без обязательного статического URL scheme. Вместо него iOS использует
+нативный Sign in with Apple с app capability: клиент получает одноразовый nonce
+из `POST /v1/auth/apple/preflight`, без преобразования устанавливает его в
+AuthenticationServices request и отправляет тот же nonce с Apple identity token
+в `POST /v1/auth/apple`. Email/full name scopes не запрашиваются, Apple credential
+не хранится, GOCHYA-сессия появляется только после backend verification.
+Недоступный native provider и истёкший nonce обрабатываются fail-closed.
+Shared Core FFI остаётся следующим срезом.
 
 ---
 

@@ -1,23 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/config/app_config.dart';
 import '../../core/models/profile_models.dart';
+import '../../core/network/api_providers.dart';
 import '../../core/network/gochya_api_client.dart';
-
-final appConfigProvider = Provider<AppConfig>(
-  (ref) => AppConfig.fromEnvironment(),
-);
-
-final apiClientProvider = Provider<GochyaApiClient>((ref) {
-  final client = GochyaApiClient(
-    baseUri: ref.watch(appConfigProvider).apiBaseUri,
-  );
-  ref.onDispose(client.close);
-  return client;
-});
+import '../session/session_request_runner.dart';
 
 final profileRepositoryProvider = Provider<ProfileRepository>(
-  (ref) => ApiProfileRepository(ref.watch(apiClientProvider)),
+  (ref) => ApiProfileRepository(
+    api: ref.watch(apiClientProvider),
+    sessionRunner: ref.watch(sessionRequestRunnerProvider),
+  ),
 );
 
 final homeSnapshotProvider = FutureProvider.autoDispose
@@ -41,15 +33,16 @@ abstract interface class ProfileRepository {
 }
 
 class ApiProfileRepository implements ProfileRepository {
-  const ApiProfileRepository(this._api);
+  const ApiProfileRepository({required this.api, required this.sessionRunner});
 
-  final GochyaApiClient _api;
+  final GochyaApiClient api;
+  final AuthenticatedRequestRunner sessionRunner;
 
   @override
   Future<HomeSnapshot> loadHome(String accessToken) async {
     final results = await Future.wait<Object>([
-      _api.getProfile(accessToken),
-      _api.getPets(accessToken),
+      sessionRunner.run(accessToken: accessToken, request: api.getProfile),
+      sessionRunner.run(accessToken: accessToken, request: api.getPets),
     ]);
     return HomeSnapshot(
       profile: results[0] as PlayerProfile,
@@ -59,7 +52,10 @@ class ApiProfileRepository implements ProfileRepository {
 
   @override
   Future<LineageTree> loadLineage(String accessToken, String petId) {
-    return _api.getLineage(accessToken, petId);
+    return sessionRunner.run(
+      accessToken: accessToken,
+      request: (token) => api.getLineage(token, petId),
+    );
   }
 }
 

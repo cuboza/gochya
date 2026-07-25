@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/auth_models.dart';
 import '../models/care_models.dart';
 import '../models/onboarding_models.dart';
 import '../models/profile_models.dart';
@@ -18,6 +19,83 @@ class GochyaApiClient {
   final Uri baseUri;
   final Duration requestTimeout;
   final http.Client _httpClient;
+
+  Future<AppleLoginChallenge> createAppleLoginChallenge() async {
+    final json = await _postPublicObject('/v1/auth/apple/preflight');
+    return _decode(
+      'Apple login preflight',
+      () => AppleLoginChallenge.fromJson(json),
+    );
+  }
+
+  Future<AuthLoginResult> loginWithApple({
+    required String identityToken,
+    required String nonce,
+    required String deviceId,
+  }) async {
+    if (identityToken.trim().isEmpty) {
+      throw ArgumentError.value(
+        identityToken,
+        'identityToken',
+        'must not be empty',
+      );
+    }
+    if (nonce.trim().isEmpty) {
+      throw ArgumentError.value(nonce, 'nonce', 'must not be empty');
+    }
+    if (deviceId.trim().isEmpty || deviceId.length > 128) {
+      throw ArgumentError.value(
+        deviceId,
+        'deviceId',
+        'must contain 1 to 128 characters',
+      );
+    }
+    final json = await _postPublicObject(
+      '/v1/auth/apple',
+      body: {
+        'identityToken': identityToken,
+        'nonce': nonce,
+        'deviceId': deviceId,
+      },
+    );
+    return _decode('Apple login', () => AuthLoginResult.fromJson(json));
+  }
+
+  Future<AuthLoginResult> loginWithGoogle({
+    required String idToken,
+    required String deviceId,
+  }) async {
+    if (idToken.trim().isEmpty) {
+      throw ArgumentError.value(idToken, 'idToken', 'must not be empty');
+    }
+    if (deviceId.trim().isEmpty || deviceId.length > 128) {
+      throw ArgumentError.value(
+        deviceId,
+        'deviceId',
+        'must contain 1 to 128 characters',
+      );
+    }
+    final json = await _postPublicObject(
+      '/v1/auth/google',
+      body: {'idToken': idToken, 'deviceId': deviceId},
+    );
+    return _decode('Google login', () => AuthLoginResult.fromJson(json));
+  }
+
+  Future<AuthTokenPair> refreshSession(String refreshToken) async {
+    if (refreshToken.trim().isEmpty) {
+      throw ArgumentError.value(
+        refreshToken,
+        'refreshToken',
+        'must not be empty',
+      );
+    }
+    final json = await _postPublicObject(
+      '/v1/auth/refresh',
+      body: {'refreshToken': refreshToken},
+    );
+    return _decode('refresh session', () => AuthTokenPair.fromJson(json));
+  }
 
   Future<PlayerProfile> getProfile(String accessToken) async {
     final json = await _getObject('/v1/me', accessToken);
@@ -209,6 +287,17 @@ class GochyaApiClient {
     return decoded;
   }
 
+  Future<JsonMap> _postPublicObject(String path, {JsonMap? body}) async {
+    final decoded = await _request(method: 'POST', path: path, body: body);
+    if (decoded is! Map<String, dynamic>) {
+      throw const ApiException(
+        code: 'invalid_response',
+        message: 'Server returned an invalid object response.',
+      );
+    }
+    return decoded;
+  }
+
   Future<Object?> _get(String path, String accessToken) async {
     return _request(method: 'GET', path: path, accessToken: accessToken);
   }
@@ -216,12 +305,12 @@ class GochyaApiClient {
   Future<Object?> _request({
     required String method,
     required String path,
-    required String accessToken,
+    String? accessToken,
     JsonMap? body,
     String? idempotencyKey,
     Map<String, String>? extraHeaders,
   }) async {
-    if (accessToken.trim().isEmpty) {
+    if (accessToken != null && accessToken.trim().isEmpty) {
       throw ArgumentError.value(
         accessToken,
         'accessToken',
@@ -231,7 +320,7 @@ class GochyaApiClient {
 
     final headers = <String, String>{
       'Accept': 'application/json',
-      'Authorization': 'Bearer $accessToken',
+      if (accessToken != null) 'Authorization': 'Bearer $accessToken',
       if (body != null) 'Content-Type': 'application/json; charset=utf-8',
       'Idempotency-Key': ?idempotencyKey,
       ...?extraHeaders,

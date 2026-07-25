@@ -9,6 +9,114 @@ import 'package:http/testing.dart';
 
 void main() {
   group('GochyaApiClient', () {
+    test('performs Apple nonce preflight and token exchange', () async {
+      final requests = <http.Request>[];
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path.endsWith('/preflight')) {
+            return _jsonResponse({
+              'nonce': 'server-apple-nonce',
+              'expiresAt': '2026-07-25T10:05:00Z',
+            }, 200);
+          }
+          return _jsonResponse({
+            'jwt': 'apple-access',
+            'refreshToken': 'apple-refresh',
+            'accessTokenExpiresAt': '2026-07-25T10:15:00Z',
+            'refreshTokenExpiresAt': '2026-08-24T10:00:00Z',
+            'player': {'id': 'player-1', 'username': 'apple-player'},
+          }, 200);
+        }),
+      );
+
+      final challenge = await client.createAppleLoginChallenge();
+      final result = await client.loginWithApple(
+        identityToken: 'apple-identity-token',
+        nonce: challenge.nonce,
+        deviceId: '11111111-1111-4111-8111-111111111111',
+      );
+
+      expect(requests, hasLength(2));
+      expect(requests.first.method, 'POST');
+      expect(requests.first.url.path, '/v1/auth/apple/preflight');
+      expect(requests.first.body, isEmpty);
+      expect(requests.first.headers, isNot(contains('authorization')));
+      expect(jsonDecode(requests.last.body), {
+        'identityToken': 'apple-identity-token',
+        'nonce': 'server-apple-nonce',
+        'deviceId': '11111111-1111-4111-8111-111111111111',
+      });
+      expect(challenge.expiresAt, DateTime.parse('2026-07-25T10:05:00Z'));
+      expect(result.tokens.accessToken, 'apple-access');
+      expect(result.player.username, 'apple-player');
+    });
+
+    test('exchanges a Google ID token without bearer credentials', () async {
+      late http.Request request;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((value) async {
+          request = value;
+          return _jsonResponse({
+            'jwt': 'issued-access',
+            'refreshToken': 'issued-refresh',
+            'accessTokenExpiresAt': '2026-07-25T10:15:00Z',
+            'refreshTokenExpiresAt': '2026-08-24T10:00:00Z',
+            'player': {
+              'id': 'player-1',
+              'username': 'nika',
+              'displayName': 'Ника',
+            },
+          }, 200);
+        }),
+      );
+
+      final result = await client.loginWithGoogle(
+        idToken: 'verified-google-id-token',
+        deviceId: '11111111-1111-4111-8111-111111111111',
+      );
+
+      expect(request.method, 'POST');
+      expect(request.url.path, '/v1/auth/google');
+      expect(request.headers, isNot(contains('authorization')));
+      expect(jsonDecode(request.body), {
+        'idToken': 'verified-google-id-token',
+        'deviceId': '11111111-1111-4111-8111-111111111111',
+      });
+      expect(result.tokens.accessToken, 'issued-access');
+      expect(result.tokens.refreshToken, 'issued-refresh');
+      expect(result.player.id, 'player-1');
+      expect(result.player.displayName, 'Ника');
+    });
+
+    test('rotates refresh token without sending bearer credentials', () async {
+      late http.Request request;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((value) async {
+          request = value;
+          return _jsonResponse({
+            'jwt': 'rotated-access',
+            'refreshToken': 'rotated-refresh',
+            'accessTokenExpiresAt': '2026-07-25T10:15:00Z',
+            'refreshTokenExpiresAt': '2026-08-24T10:00:00Z',
+          }, 200);
+        }),
+      );
+
+      final pair = await client.refreshSession('current-refresh');
+
+      expect(request.method, 'POST');
+      expect(request.url.path, '/v1/auth/refresh');
+      expect(request.headers, isNot(contains('authorization')));
+      expect(jsonDecode(request.body), {'refreshToken': 'current-refresh'});
+      expect(pair.accessToken, 'rotated-access');
+      expect(pair.refreshToken, 'rotated-refresh');
+      expect(pair.accessTokenExpiresAt, DateTime.parse('2026-07-25T10:15:00Z'));
+    });
+
     test('sends bearer auth and decodes profile and pets', () async {
       final seenPaths = <String>[];
       final client = GochyaApiClient(

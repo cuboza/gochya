@@ -5,8 +5,10 @@ import 'package:gochya_companion/app/app.dart';
 import 'package:gochya_companion/core/models/profile_models.dart';
 import 'package:gochya_companion/core/network/gochya_api_client.dart';
 import 'package:gochya_companion/core/session/session_store.dart';
+import 'package:gochya_companion/features/auth/apple_identity_client.dart';
+import 'package:gochya_companion/features/auth/auth_repository.dart';
+import 'package:gochya_companion/features/auth/google_identity_client.dart';
 import 'package:gochya_companion/features/care/care_queue_store.dart';
-import 'package:gochya_companion/features/care/care_repository.dart';
 import 'package:gochya_companion/features/home/profile_repository.dart';
 import 'package:gochya_companion/features/session/session_controller.dart';
 
@@ -56,6 +58,118 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('stores the session issued after Google login', (tester) async {
+    final store = _MemorySessionStore();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(store),
+          careQueueStoreProvider.overrideWithValue(_MemoryCareQueueStore()),
+          authRepositoryProvider.overrideWithValue(
+            const _AvailableAuthRepository(tokens: _tokens),
+          ),
+          profileRepositoryProvider.overrideWithValue(_FakeRepository()),
+        ],
+        child: const GochyaApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Войти через Google'), findsOneWidget);
+    await tester.tap(find.text('Войти через Google'));
+    await tester.pumpAndSettle();
+
+    expect(store.tokens?.accessToken, 'access-token');
+    expect(store.tokens?.refreshToken, 'refresh-token');
+    expect(find.text('Привет, Ника'), findsOneWidget);
+    expect(find.text('Токены не вводятся вручную'), findsNothing);
+  });
+
+  testWidgets('stores the session issued after Apple login', (tester) async {
+    final store = _MemorySessionStore();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(store),
+          careQueueStoreProvider.overrideWithValue(_MemoryCareQueueStore()),
+          authRepositoryProvider.overrideWithValue(
+            const _AvailableAuthRepository(
+              tokens: _tokens,
+              appleAvailable: true,
+              googleAvailable: false,
+            ),
+          ),
+          profileRepositoryProvider.overrideWithValue(_FakeRepository()),
+        ],
+        child: const GochyaApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Войти через Apple'), findsOneWidget);
+    expect(find.text('Войти через Google'), findsNothing);
+    await tester.tap(find.text('Войти через Apple'));
+    await tester.pumpAndSettle();
+
+    expect(store.tokens?.accessToken, 'access-token');
+    expect(store.tokens?.refreshToken, 'refresh-token');
+    expect(find.text('Привет, Ника'), findsOneWidget);
+  });
+
+  testWidgets('keeps signed-out state when Apple login is cancelled', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(_MemorySessionStore()),
+          careQueueStoreProvider.overrideWithValue(_MemoryCareQueueStore()),
+          authRepositoryProvider.overrideWithValue(
+            const _AvailableAuthRepository(
+              error: AppleIdentityException(AppleIdentityFailure.cancelled),
+              appleAvailable: true,
+              googleAvailable: false,
+            ),
+          ),
+        ],
+        child: const GochyaApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Войти через Apple'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Войти через Apple'), findsOneWidget);
+    expect(find.text('Не удалось войти. Повторите попытку.'), findsNothing);
+  });
+
+  testWidgets('keeps signed-out state when Google login is cancelled', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(_MemorySessionStore()),
+          careQueueStoreProvider.overrideWithValue(_MemoryCareQueueStore()),
+          authRepositoryProvider.overrideWithValue(
+            const _AvailableAuthRepository(
+              error: GoogleIdentityException(GoogleIdentityFailure.cancelled),
+            ),
+          ),
+        ],
+        child: const GochyaApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Войти через Google'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Войти через Google'), findsOneWidget);
+    expect(find.text('Не удалось войти. Повторите попытку.'), findsNothing);
   });
 
   testWidgets('renders profile, active pet, needs, and lineage', (
@@ -160,6 +274,42 @@ class _FailingSessionStore implements SessionStore {
 
   @override
   Future<void> write(SessionTokens tokens) => throw UnimplementedError();
+}
+
+class _AvailableAuthRepository implements AuthRepository {
+  const _AvailableAuthRepository({
+    this.tokens,
+    this.error,
+    this.appleAvailable = false,
+    this.googleAvailable = true,
+  });
+
+  final SessionTokens? tokens;
+  final Object? error;
+  final bool appleAvailable;
+  final bool googleAvailable;
+
+  @override
+  bool get isGoogleSignInAvailable => googleAvailable;
+
+  @override
+  Future<bool> isAppleSignInAvailable() async => appleAvailable;
+
+  @override
+  Future<SessionTokens> signInWithApple() => _signIn();
+
+  @override
+  Future<SessionTokens> signInWithGoogle() => _signIn();
+
+  Future<SessionTokens> _signIn() async {
+    if (error case final error?) {
+      throw error;
+    }
+    return tokens!;
+  }
+
+  @override
+  Future<void> signOutFromProvider() async {}
 }
 
 class _MemoryCareQueueStore implements CareQueueStore {

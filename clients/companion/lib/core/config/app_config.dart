@@ -1,5 +1,5 @@
 class AppConfig {
-  const AppConfig({required this.apiBaseUri});
+  const AppConfig({required this.apiBaseUri, this.googleServerClientId = ''});
 
   factory AppConfig.fromEnvironment() {
     return AppConfig(
@@ -9,8 +9,12 @@ class AppConfig {
           defaultValue: 'https://api.gochya.invalid',
         ),
       ),
+      googleServerClientId: const String.fromEnvironment(
+        'GOCHYA_GOOGLE_SERVER_CLIENT_ID',
+      ),
     );
   }
 
   final Uri apiBaseUri;
+  final String googleServerClientId;
 }

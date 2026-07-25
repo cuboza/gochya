@@ -1,65 +1,23 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../../core/device/installation_id_store.dart';
 import '../../core/identifiers/uuid_v4.dart';
 import '../../core/models/care_models.dart';
+import '../../core/network/api_providers.dart';
 import '../../core/network/gochya_api_client.dart';
-import '../home/profile_repository.dart';
+import '../session/session_request_runner.dart';
 import 'care_queue_store.dart';
-
-final careDeviceStoreProvider = Provider<CareDeviceStore>(
-  (ref) => SecureCareDeviceStore(),
-);
-
-final careQueueStoreProvider = Provider<CareQueueStore>(
-  (ref) => SecureCareQueueStore(),
-);
 
 final careRepositoryProvider = Provider<CareRepository>(
   (ref) => ApiCareRepository(
     api: ref.watch(apiClientProvider),
-    deviceStore: ref.watch(careDeviceStoreProvider),
+    installationIdStore: ref.watch(installationIdStoreProvider),
     queueStore: ref.watch(careQueueStoreProvider),
+    sessionRunner: ref.watch(sessionRequestRunnerProvider),
   ),
 );
-
-abstract interface class CareDeviceStore {
-  Future<String> getOrCreate();
-}
-
-class SecureCareDeviceStore implements CareDeviceStore {
-  SecureCareDeviceStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
-
-  static const _deviceIdKey = 'gochya.care_device_id.v1';
-  static final _uuidV4 = RegExp(
-    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-'
-    r'[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
-  );
-
-  final FlutterSecureStorage _storage;
-  Future<String>? _deviceId;
-
-  @override
-  Future<String> getOrCreate() {
-    return _deviceId ??= _loadOrCreate().catchError((Object error) {
-      _deviceId = null;
-      throw error;
-    });
-  }
-
-  Future<String> _loadOrCreate() async {
-    final stored = await _storage.read(key: _deviceIdKey);
-    if (stored != null && _uuidV4.hasMatch(stored)) {
-      return stored;
-    }
-    final created = newUuidV4();
-    await _storage.write(key: _deviceIdKey, value: created);
-    return created;
-  }
-}
 
 abstract interface class CareRepository {
   Future<CareSubmitResult> submit({
@@ -115,13 +73,15 @@ class CareReconcileResult {
 class ApiCareRepository implements CareRepository {
   ApiCareRepository({
     required this.api,
-    required this.deviceStore,
+    required this.installationIdStore,
     required this.queueStore,
+    required this.sessionRunner,
   });
 
   final GochyaApiClient api;
-  final CareDeviceStore deviceStore;
+  final InstallationIdStore installationIdStore;
   final CareQueueStore queueStore;
+  final AuthenticatedRequestRunner sessionRunner;
 
   Future<void> _tail = Future.value();
 
@@ -191,10 +151,14 @@ class ApiCareRepository implements CareRepository {
 
       late final CareSyncResult response;
       try {
-        response = await api.reconcileCareBatch(
+        final deviceId = await installationIdStore.getOrCreate();
+        response = await sessionRunner.run(
           accessToken: accessToken,
-          deviceId: await deviceStore.getOrCreate(),
-          commands: batch,
+          request: (token) => api.reconcileCareBatch(
+            accessToken: token,
+            deviceId: deviceId,
+            commands: batch,
+          ),
         );
         _validateResponse(response, batch);
       } on ApiException catch (error) {

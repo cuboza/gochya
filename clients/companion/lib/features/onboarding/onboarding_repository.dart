@@ -2,11 +2,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/identifiers/uuid_v4.dart';
 import '../../core/models/onboarding_models.dart';
+import '../../core/network/api_providers.dart';
 import '../../core/network/gochya_api_client.dart';
-import '../home/profile_repository.dart';
+import '../session/session_request_runner.dart';
 
 final onboardingRepositoryProvider = Provider<OnboardingRepository>(
-  (ref) => ApiOnboardingRepository(ref.watch(apiClientProvider)),
+  (ref) => ApiOnboardingRepository(
+    api: ref.watch(apiClientProvider),
+    sessionRunner: ref.watch(sessionRequestRunnerProvider),
+  ),
 );
 
 final onboardingEggsProvider = FutureProvider.autoDispose
@@ -33,9 +37,13 @@ abstract interface class OnboardingRepository {
 }
 
 class ApiOnboardingRepository implements OnboardingRepository {
-  const ApiOnboardingRepository(this._api);
+  const ApiOnboardingRepository({
+    required this.api,
+    required this.sessionRunner,
+  });
 
-  final GochyaApiClient _api;
+  final GochyaApiClient api;
+  final AuthenticatedRequestRunner sessionRunner;
 
   @override
   Future<AgeGateResult> recordAgeGate({
@@ -48,10 +56,13 @@ class ApiOnboardingRepository implements OnboardingRepository {
       birthDate.month,
       birthDate.day,
     );
-    return _api.recordAgeGate(
+    return sessionRunner.run(
       accessToken: accessToken,
-      birthDate: _formatDate(canonicalDate),
-      idempotencyKey: idempotencyKey,
+      request: (token) => api.recordAgeGate(
+        accessToken: token,
+        birthDate: _formatDate(canonicalDate),
+        idempotencyKey: idempotencyKey,
+      ),
     );
   }
 
@@ -61,21 +72,27 @@ class ApiOnboardingRepository implements OnboardingRepository {
     required StarterElement element,
     required String idempotencyKey,
   }) {
-    return _api.selectStarterEgg(
+    return sessionRunner.run(
       accessToken: accessToken,
-      element: element,
-      idempotencyKey: idempotencyKey,
+      request: (token) => api.selectStarterEgg(
+        accessToken: token,
+        element: element,
+        idempotencyKey: idempotencyKey,
+      ),
     );
   }
 
   @override
   Future<List<EggSummary>> loadEggs(String accessToken) {
-    return _api.getEggs(accessToken);
+    return sessionRunner.run(accessToken: accessToken, request: api.getEggs);
   }
 
   @override
   Future<HatchedPet> hatchEgg(String accessToken, String eggId) {
-    return _api.hatchEgg(accessToken, eggId);
+    return sessionRunner.run(
+      accessToken: accessToken,
+      request: (token) => api.hatchEgg(token, eggId),
+    );
   }
 }
 
