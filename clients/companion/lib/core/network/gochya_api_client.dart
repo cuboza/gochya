@@ -3,11 +3,15 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/activity_models.dart';
 import '../models/auth_models.dart';
+import '../models/battle_models.dart';
+import '../models/breeding_models.dart';
 import '../models/care_models.dart';
 import '../models/onboarding_models.dart';
 import '../models/profile_models.dart';
 import '../models/shop_models.dart';
+import '../models/technique_models.dart';
 
 class GochyaApiClient {
   GochyaApiClient({
@@ -234,6 +238,198 @@ class GochyaApiClient {
     return _decode('hatched pet', () => HatchedPet.fromJson(json));
   }
 
+  Future<TechniquePage> getTechniques(
+    String accessToken, {
+    int? limit,
+    String? cursor,
+  }) async {
+    if (limit != null && (limit < 1 || limit > 100)) {
+      throw ArgumentError.value(limit, 'limit', 'must be between 1 and 100');
+    }
+    if (cursor != null && (cursor.trim().isEmpty || cursor.length > 512)) {
+      throw ArgumentError.value(
+        cursor,
+        'cursor',
+        'must contain 1 to 512 characters',
+      );
+    }
+    final query = <String, String>{
+      if (limit != null) 'limit': '$limit',
+      'cursor': ?cursor,
+    };
+    final path = query.isEmpty
+        ? '/v1/me/techniques'
+        : '/v1/me/techniques?${Uri(queryParameters: query).query}';
+    final json = await _getObject(path, accessToken);
+    return _decode('techniques', () => TechniquePage.fromJson(json));
+  }
+
+  Future<PetLoadout> getLoadout(String accessToken) async {
+    final json = await _getObject('/v1/me/loadout', accessToken);
+    return _decode('loadout', () => PetLoadout.fromJson(json));
+  }
+
+  Future<PetLoadout> equipTechniques({
+    required String accessToken,
+    required List<String> cardIds,
+    required int signatureIdx,
+    required String idempotencyKey,
+  }) async {
+    if (cardIds.length != PetLoadout.loadoutSize ||
+        cardIds.toSet().length != cardIds.length ||
+        cardIds.any((cardId) => cardId.trim().isEmpty)) {
+      throw ArgumentError.value(
+        cardIds,
+        'cardIds',
+        'must contain five distinct non-empty card IDs',
+      );
+    }
+    if (signatureIdx < 0 || signatureIdx >= PetLoadout.loadoutSize) {
+      throw ArgumentError.value(
+        signatureIdx,
+        'signatureIdx',
+        'must select one of the five equipped cards',
+      );
+    }
+    final json = await _postObject(
+      '/v1/me/techniques/equip',
+      accessToken,
+      body: {'cardIds': cardIds, 'signatureIdx': signatureIdx},
+      idempotencyKey: idempotencyKey,
+    );
+    return _decode('loadout', () {
+      final loadout = PetLoadout.fromJson(json);
+      if (!_sameOrder(loadout.cardIds, cardIds) ||
+          loadout.signatureIdx != signatureIdx) {
+        throw const FormatException('loadout response does not match request');
+      }
+      return loadout;
+    });
+  }
+
+  Future<MatchTicket> queueCasualMatch({
+    required String accessToken,
+    required String idempotencyKey,
+  }) async {
+    final json = await _postObject(
+      '/v1/matchmaking/queue',
+      accessToken,
+      body: {'mode': 'casual'},
+      idempotencyKey: idempotencyKey,
+    );
+    return _decode('match ticket', () => MatchTicket.fromJson(json));
+  }
+
+  Future<MatchReplay> getMatch(String accessToken, String matchId) async {
+    if (matchId.trim().isEmpty) {
+      throw ArgumentError.value(matchId, 'matchId', 'must not be empty');
+    }
+    final json = await _getObject(
+      '/v1/match/${Uri.encodeComponent(matchId)}',
+      accessToken,
+    );
+    return _decode('match', () {
+      final replay = MatchReplay.fromJson(json);
+      if (replay.id != matchId) {
+        throw const FormatException('match response identifies another match');
+      }
+      return replay;
+    });
+  }
+
+  Future<MatchConfirmation> confirmMatch({
+    required String accessToken,
+    required String matchId,
+  }) async {
+    if (matchId.trim().isEmpty) {
+      throw ArgumentError.value(matchId, 'matchId', 'must not be empty');
+    }
+    final json = await _postObject(
+      '/v1/match/${Uri.encodeComponent(matchId)}/confirm',
+      accessToken,
+    );
+    return _decode('match confirmation', () {
+      final confirmation = MatchConfirmation.fromJson(json);
+      if (confirmation.matchId != matchId) {
+        throw const FormatException('confirmation identifies another match');
+      }
+      return confirmation;
+    });
+  }
+
+  Future<List<MatchSummary>> getMatchHistory(
+    String accessToken, {
+    int? limit,
+  }) async {
+    if (limit != null && (limit < 1 || limit > 100)) {
+      throw ArgumentError.value(limit, 'limit', 'must be between 1 and 100');
+    }
+    final path = limit == null
+        ? '/v1/me/matches/history'
+        : '/v1/me/matches/history?limit=$limit';
+    final json = await _getArray(path, accessToken);
+    return _decode('match history', () {
+      return json
+          .map((value) => MatchSummary.fromJson(asMap(value, 'history[]')))
+          .toList(growable: false);
+    });
+  }
+
+  Future<BreedingResult> breedPets({
+    required String accessToken,
+    required String parentAId,
+    required String parentBId,
+    required List<BreedingCatalyst> catalysts,
+    required String idempotencyKey,
+  }) async {
+    if (parentAId.trim().isEmpty ||
+        parentBId.trim().isEmpty ||
+        parentAId == parentBId) {
+      throw ArgumentError('breeding needs two distinct non-empty parents');
+    }
+    if (catalysts.toSet().length != catalysts.length) {
+      throw ArgumentError.value(
+        catalysts,
+        'catalysts',
+        'must not repeat a catalyst',
+      );
+    }
+    final json = await _postObject(
+      '/v1/breeding/breed',
+      accessToken,
+      body: {
+        'parentA': parentAId,
+        'parentB': parentBId,
+        'catalysts': catalysts
+            .map((catalyst) => catalyst.apiValue)
+            .toList(growable: false),
+      },
+      idempotencyKey: idempotencyKey,
+    );
+    return _decode('breeding result', () => BreedingResult.fromJson(json));
+  }
+
+  Future<List<DailyActivity>> getActivityWeek(String accessToken) async {
+    final json = await _getArray('/v1/me/activity/week', accessToken);
+    return _decode('activity week', () {
+      final days = json
+          .map((value) => DailyActivity.fromJson(asMap(value, 'week[]')))
+          .toList(growable: false);
+      if (days.map((day) => day.date).toSet().length != days.length) {
+        throw const FormatException('activity week repeats a day');
+      }
+      return days;
+    });
+  }
+
+  Future<ActivityRewardResult> claimActivityReward(String accessToken) async {
+    final json = await _postObject('/v1/me/activity/reward', accessToken);
+    return _decode(
+      'activity reward',
+      () => ActivityRewardResult.fromJson(json),
+    );
+  }
+
   Future<CareSyncResult> reconcileCare({
     required String accessToken,
     required String deviceId,
@@ -455,6 +651,18 @@ class GochyaApiClient {
         message: 'Server returned an invalid $resource payload.',
       );
     }
+  }
+
+  static bool _sameOrder(List<String> left, List<String> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static Uri _validatedBaseUri(Uri value) {

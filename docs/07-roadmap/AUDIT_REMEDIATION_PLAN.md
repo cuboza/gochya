@@ -54,8 +54,8 @@
 - [ ] Выполнить Gate 4: старт и валидация датасета классификатора (`SPRINT0_GATES.md`).
 - [ ] Собрать end-to-end путь: Wear OS → API → Rust Core → PostgreSQL → Flutter.
 - [ ] Настроить CI для Rust, Go, Flutter, Wear OS, ABI и документации.
-  Rust/Go/Core и Flutter analyzer/tests/Android/iOS build уже автоматизированы;
-  отдельные Wear OS и полный documentation gate ещё не закрыты.
+  Rust/Go/Core, Flutter analyzer/tests/Android/iOS build и documentation link
+  gate уже автоматизированы; отдельный Wear OS job ещё не закрыт.
 - [x] Подключить первый телефонный onboarding-срез:
   age gate → server-authoritative starter egg → возобновляемая инкубация →
   вылупление; parental consent остаётся отдельным обязательным срезом.
@@ -73,6 +73,13 @@
   гарантированная offline-очистка и generation barrier для позднего refresh.
 - [x] Подключить телефонный Koins-shop: авторитетные каталог/инвентарь,
   идемпотентная покупка и блокировка повторной оплаты при неопределённом исходе.
+- [x] Подключить телефонный боевой цикл: server-authoritative лоадаут из пяти
+  карт, casual queue, отображение replay и идемпотентное подтверждение наград.
+- [x] Подключить телефонный бридинг: выбор двух допустимых родителей,
+  катализаторы, идемпотентное создание яйца и вылупление.
+- [x] Подключить read-only витрину симбиоза: неделя Vitality и идемпотентная
+  выдача карты дня. Ingestion Health Connect / HealthKit остаётся отдельным
+  срезом — клиент не создаёт показатели активности сам.
 
 **Gate:** вертикальный Dojo-сценарий работает на реальном устройстве, а ключевые performance и security assumptions подтверждены измерениями.
 

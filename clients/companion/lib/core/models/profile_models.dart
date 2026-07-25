@@ -312,6 +312,36 @@ int rangedInt(JsonMap json, String field, {required int min, int? max}) {
   return value;
 }
 
+double requiredDouble(
+  JsonMap json,
+  String field, {
+  required double min,
+  double? max,
+}) {
+  final value = json[field];
+  if (value is! num ||
+      value.isNaN ||
+      value < min ||
+      (max != null && value > max)) {
+    throw FormatException('$field is outside its supported range');
+  }
+  return value.toDouble();
+}
+
+/// Reads a numeric field the server omits when it carries no value.
+double optionalDouble(
+  JsonMap json,
+  String field, {
+  required double min,
+  double? max,
+  double fallback = 0,
+}) {
+  if (json[field] == null) {
+    return fallback;
+  }
+  return requiredDouble(json, field, min: min, max: max);
+}
+
 bool requiredBool(JsonMap json, String field) {
   final value = json[field];
   if (value is! bool) {

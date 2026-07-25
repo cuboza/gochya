@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../core/models/onboarding_models.dart';
 import '../../core/models/profile_models.dart';
 import '../../core/network/gochya_api_client.dart';
+import '../activity/activity_screen.dart';
 import '../care/care_actions.dart';
 import '../onboarding/onboarding_repository.dart';
 import '../onboarding/onboarding_screen.dart';
@@ -138,8 +139,51 @@ class _HomeContent extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 16),
+          _ActivityEntryCard(accessToken: accessToken),
         ],
       ],
+    );
+  }
+}
+
+class _ActivityEntryCard extends StatelessWidget {
+  const _ActivityEntryCard({required this.accessToken});
+
+  final String accessToken;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Симбиоз',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text('Vitality за неделю и карта дня за 100 Vitality.'),
+            const SizedBox(height: 16),
+            FilledButton.tonalIcon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) =>
+                        ActivityScreen(accessToken: accessToken),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.monitor_heart_outlined),
+              label: const Text('Активность и Vitality'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

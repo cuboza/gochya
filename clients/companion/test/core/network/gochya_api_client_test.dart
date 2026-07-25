@@ -1,9 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gochya_companion/core/models/battle_models.dart';
+import 'package:gochya_companion/core/models/breeding_models.dart';
 import 'package:gochya_companion/core/models/care_models.dart';
 import 'package:gochya_companion/core/models/onboarding_models.dart';
 import 'package:gochya_companion/core/models/shop_models.dart';
+import 'package:gochya_companion/core/models/technique_models.dart';
 import 'package:gochya_companion/core/network/gochya_api_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -606,6 +609,288 @@ void main() {
       );
     });
 
+    test('follows technique cursors and rejects a duplicated card', () async {
+      final requests = <http.Request>[];
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.queryParameters['cursor'] == null) {
+            return _jsonResponse({
+              'items': [_techniqueJson],
+              'next_cursor': 'opaque-cursor',
+            }, 200);
+          }
+          return _jsonResponse({'items': <Object>[]}, 200);
+        }),
+      );
+
+      final first = await client.getTechniques('access', limit: 50);
+      final second = await client.getTechniques(
+        'access',
+        cursor: first.nextCursor,
+      );
+
+      expect(requests.first.url.path, '/v1/me/techniques');
+      expect(requests.first.url.queryParameters, {'limit': '50'});
+      expect(requests.last.url.queryParameters, {'cursor': 'opaque-cursor'});
+      expect(first.items.single.type, TechniqueType.hook);
+      expect(first.items.single.rarity, TechniqueRarity.rare);
+      expect(first.nextCursor, 'opaque-cursor');
+      expect(second.items, isEmpty);
+      expect(second.nextCursor, isNull);
+    });
+
+    test('equips five cards and verifies the echoed loadout', () async {
+      late http.Request request;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((value) async {
+          request = value;
+          return _jsonResponse({
+            'petId': 'pet-1',
+            'cardIds': _cardIds,
+            'signatureIdx': 2,
+            'revision': 7,
+            'updatedAt': '2026-07-25T10:00:00Z',
+          }, 200);
+        }),
+      );
+
+      final loadout = await client.equipTechniques(
+        accessToken: 'access',
+        cardIds: _cardIds,
+        signatureIdx: 2,
+        idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      );
+
+      expect(request.method, 'POST');
+      expect(request.url.path, '/v1/me/techniques/equip');
+      expect(
+        request.headers['idempotency-key'],
+        '11111111-1111-4111-8111-111111111111',
+      );
+      expect(jsonDecode(request.body), {
+        'cardIds': _cardIds,
+        'signatureIdx': 2,
+      });
+      expect(loadout.revision, 7);
+      expect(loadout.signatureCardId, _cardIds[2]);
+    });
+
+    test('rejects a loadout response that reorders the request', () async {
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((value) async {
+          return _jsonResponse({
+            'petId': 'pet-1',
+            'cardIds': _cardIds.reversed.toList(),
+            'signatureIdx': 2,
+            'revision': 7,
+            'updatedAt': '2026-07-25T10:00:00Z',
+          }, 200);
+        }),
+      );
+
+      await expectLater(
+        client.equipTechniques(
+          accessToken: 'access',
+          cardIds: _cardIds,
+          signatureIdx: 2,
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'invalid_response',
+          ),
+        ),
+      );
+    });
+
+    test('refuses to equip a set that is not five distinct cards', () {
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+      );
+      expect(
+        () => client.equipTechniques(
+          accessToken: 'access',
+          cardIds: [..._cardIds.take(4), _cardIds.first],
+          signatureIdx: 0,
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => client.equipTechniques(
+          accessToken: 'access',
+          cardIds: _cardIds,
+          signatureIdx: 5,
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('queues a casual match and reads its authoritative replay', () async {
+      final requests = <http.Request>[];
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/v1/matchmaking/queue') {
+            return _jsonResponse({
+              'matchId': _matchId,
+              'status': 'completed',
+            }, 200);
+          }
+          return _jsonResponse(_matchJson, 200);
+        }),
+      );
+
+      final ticket = await client.queueCasualMatch(
+        accessToken: 'access',
+        idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      );
+      final replay = await client.getMatch('access', ticket.matchId);
+
+      expect(jsonDecode(requests.first.body), {'mode': 'casual'});
+      expect(requests.last.method, 'GET');
+      expect(requests.last.url.path, '/v1/match/$_matchId');
+      expect(replay.outcomeFor('player-1'), MatchOutcome.win);
+      expect(replay.outcomeFor('player-2'), MatchOutcome.loss);
+      expect(replay.opponentOf('player-1'), 'player-2');
+      expect(replay.rounds, hasLength(2));
+    });
+
+    test('confirms a match without a body and reads its reward', () async {
+      late http.Request request;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((value) async {
+          request = value;
+          return _jsonResponse({
+            'matchId': _matchId,
+            'outcome': 'win',
+            'rewards': [
+              {'currency': 'koins', 'amount': 30},
+            ],
+            'card': _techniqueJson,
+            'confirmedAt': '2026-07-25T10:00:05Z',
+          }, 200);
+        }),
+      );
+
+      final confirmation = await client.confirmMatch(
+        accessToken: 'access',
+        matchId: _matchId,
+      );
+
+      expect(request.method, 'POST');
+      expect(request.url.path, '/v1/match/$_matchId/confirm');
+      expect(request.body, isEmpty);
+      expect(confirmation.koins, 30);
+      expect(confirmation.card?.rarity, TechniqueRarity.rare);
+    });
+
+    test('sends canonical breeding intent with its catalysts', () async {
+      late http.Request request;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((value) async {
+          request = value;
+          return _jsonResponse({
+            'eggId': '44444444-4444-4444-8444-444444444444',
+            'incubateUntil': '2026-07-25T18:00:00Z',
+          }, 200);
+        }),
+      );
+
+      final result = await client.breedPets(
+        accessToken: 'access',
+        parentAId: 'pet-a',
+        parentBId: 'pet-b',
+        catalysts: const [BreedingCatalyst.mutation],
+        idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      );
+
+      expect(request.url.path, '/v1/breeding/breed');
+      expect(jsonDecode(request.body), {
+        'parentA': 'pet-a',
+        'parentB': 'pet-b',
+        'catalysts': ['mutation'],
+      });
+      expect(result.incubateUntil, DateTime.parse('2026-07-25T18:00:00Z'));
+    });
+
+    test('refuses breeding a pet with itself', () {
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+      );
+      expect(
+        () => client.breedPets(
+          accessToken: 'access',
+          parentAId: 'pet-a',
+          parentBId: 'pet-a',
+          catalysts: const [],
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('reads the activity week and claims its daily card', () async {
+      final requests = <http.Request>[];
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/v1/me/activity/week') {
+            return _jsonResponse([_dailyActivityJson], 200);
+          }
+          return _jsonResponse({
+            'date': '2026-07-25',
+            'card': _techniqueJson,
+            'awarded': true,
+          }, 200);
+        }),
+      );
+
+      final week = await client.getActivityWeek('access');
+      final reward = await client.claimActivityReward('access');
+
+      expect(week.single.vitality, 118);
+      expect(week.single.unlocksReward, isTrue);
+      expect(week.single.snapshot.steps, 11240);
+      expect(requests.last.method, 'POST');
+      expect(requests.last.url.path, '/v1/me/activity/reward');
+      expect(requests.last.body, isEmpty);
+      expect(reward.awarded, isTrue);
+    });
+
+    test('rejects a day whose awarded vitality exceeds its total', () async {
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          return _jsonResponse([
+            {..._dailyActivityJson, 'vitalityAwarded': 140},
+          ], 200);
+        }),
+      );
+
+      await expectLater(
+        client.getActivityWeek('access'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'invalid_response',
+          ),
+        ),
+      );
+    });
+
     test('allows plaintext only for loopback development', () {
       expect(
         () => GochyaApiClient(baseUri: Uri.parse('http://api.example.test')),
@@ -664,6 +949,86 @@ final _careSnapshotJson = <String, dynamic>{
   'revision': 10,
   'isWeak': false,
   'needsUpdatedAt': '2026-07-25T10:00:01Z',
+};
+
+const _matchId = '55555555-5555-4555-8555-555555555555';
+
+const _cardIds = ['card-1', 'card-2', 'card-3', 'card-4', 'card-5'];
+
+final _techniqueJson = <String, dynamic>{
+  'id': 'card-1',
+  'ownerId': 'player-1',
+  'type': 1,
+  'element': 2,
+  'rarity': 2,
+  'baseDamage': 24.5,
+  'speed': 51.25,
+  'staminaCost': 14,
+  'critChance': 0.08,
+  'effect': 0,
+  'quality': 61,
+  'createdAt': '2026-07-24T10:00:00Z',
+};
+
+final _matchJson = <String, dynamic>{
+  'id': _matchId,
+  'playerAId': 'player-1',
+  'playerBId': 'player-2',
+  'mode': 'casual',
+  'loadoutRevisionA': 7,
+  'loadoutRevisionB': 4,
+  'result': {
+    'winner': 'a',
+    'rounds': [
+      {
+        'cardAIdx': 0,
+        'cardBIdx': 2,
+        'damageAToB': 18,
+        'damageBToA': 11,
+        'effectKind': 0,
+        'effectValue': 0,
+      },
+      {
+        'cardAIdx': 3,
+        'cardBIdx': 1,
+        'damageAToB': 24,
+        'damageBToA': 9,
+        'effectKind': 1,
+        'effectValue': 1,
+      },
+    ],
+    'finalHpA': 74,
+    'finalHpB': 0,
+    'seed': 42,
+  },
+  'createdAt': '2026-07-25T10:00:00Z',
+};
+
+final _dailyActivityJson = <String, dynamic>{
+  'date': '2026-07-25',
+  'snapshot': {
+    'schemaVersion': 1,
+    'timestampMillis': 1785060000000,
+    'steps': 11240,
+    'sleepMinutes': 431,
+    'sleepQuality': 72,
+    'activeCalories': 380,
+    'workouts': [
+      {'kind': 1, 'durationMinutes': 42, 'calories': 310},
+    ],
+    'averageHeartRate': 74,
+    'highHeartZoneMinutes': 18,
+    'meditationMinutes': 0,
+    'stressLevel': 24,
+    'floors': 6,
+    'standHours': 11,
+  },
+  'vitality': 118,
+  'vitalityAwarded': 118,
+  'statGains': {'str': 1, 'agi': 2, 'end': 1, 'foc': 1},
+  'goals': {'steps': 9000, 'sleepHours': 7.5, 'activeCalories': 420},
+  'sourceMetadata': 'health_connect://phone',
+  'updatedAt': '2026-07-25T20:00:00Z',
 };
 
 http.Response _jsonResponse(Object? body, int statusCode) {

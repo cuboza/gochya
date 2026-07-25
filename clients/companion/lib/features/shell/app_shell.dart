@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/session/session_store.dart';
+import '../battle/battle_screen.dart';
+import '../breeding/breeding_screen.dart';
 import '../home/home_screen.dart';
 import '../session/session_controller.dart';
 import '../shop/shop_screen.dart';
@@ -23,14 +25,8 @@ class _AppShellState extends State<AppShell> {
     final page = switch (_selectedIndex) {
       0 => HomeScreen(accessToken: widget.tokens.accessToken),
       1 => ShopScreen(accessToken: widget.tokens.accessToken),
-      2 => const _ComingSoonScreen(
-        icon: Icons.sports_martial_arts_outlined,
-        title: 'PvP',
-      ),
-      3 => const _ComingSoonScreen(
-        icon: Icons.egg_alt_outlined,
-        title: 'Бридинг',
-      ),
+      2 => BattleScreen(accessToken: widget.tokens.accessToken),
+      3 => BreedingScreen(accessToken: widget.tokens.accessToken),
       _ => const _ProfileScreen(),
     };
 
@@ -68,30 +64,6 @@ class _AppShellState extends State<AppShell> {
             label: 'Профиль',
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ComingSoonScreen extends StatelessWidget {
-  const _ComingSoonScreen({required this.icon, required this.title});
-
-  final IconData icon;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 64),
-            const SizedBox(height: 16),
-            const Text('Раздел подключается к серверному контракту'),
-          ],
-        ),
       ),
     );
   }
