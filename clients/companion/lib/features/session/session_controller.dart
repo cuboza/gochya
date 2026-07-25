@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/session/session_store.dart';
+import '../care/care_repository.dart';
 
 final sessionStoreProvider = Provider<SessionStore>(
   (ref) => SecureSessionStore(),
@@ -26,7 +27,10 @@ class SessionController extends AsyncNotifier<SessionTokens?> {
   Future<void> signOut() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      await ref.read(sessionStoreProvider).clear();
+      await Future.wait([
+        ref.read(sessionStoreProvider).clear(),
+        ref.read(careQueueStoreProvider).clear(),
+      ]);
       return null;
     });
   }

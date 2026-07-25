@@ -59,10 +59,16 @@ Material app shell, Keychain/Keystore session store и read-only
 Первый care-срез отправляет Feed с `apple`, Clean, Play и Sleep в
 `POST /v1/sync/commands`: `If-Match` привязан к `careRevision`, случайный
 installation `deviceId` хранится в Keychain/Keystore, а неопределённый сетевой
-результат повторяется с полностью тем же intent. После любого определённого
-ответа клиент перечитывает canonical profile/pet snapshot; формул потребностей
-в Dart нет. Persistent encrypted offline journal, Provider OAuth UI, refresh
-orchestration и Shared Core FFI остаются следующими срезами.
+результат повторяется с полностью тем же intent. Care intent сначала сохраняется
+в account-bound encrypted journal в Keychain/Keystore и только затем уходит в
+сеть. Журнал хранит до 100 команд, глобальный sequence и ожидаемые
+revision; reconcile сохраняет порядок, разбивает поток на серверные batch одного
+питомца и удаляет только терминально подтверждённые операции. `RETRYABLE`
+остаётся в очереди, logout/смена `player.id` очищает старый журнал, а повреждённый
+payload не затирается автоматически. После определённого ответа клиент
+перечитывает canonical profile/pet snapshot; формул потребностей в Dart нет.
+Provider OAuth UI, refresh orchestration и Shared Core FFI остаются следующими
+срезами.
 
 ---
 

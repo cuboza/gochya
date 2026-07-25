@@ -26,7 +26,64 @@ class CareIntent {
   final DateTime clientWallTime;
   final int clientMonotonicOffsetMs;
 
+  factory CareIntent.fromStorageJson(JsonMap json) {
+    final operationValue = requiredString(json, 'operationType');
+    final operation = CareOperation.values
+        .where((value) => value.apiValue == operationValue)
+        .firstOrNull;
+    if (operation == null) {
+      throw FormatException('unsupported care operation $operationValue');
+    }
+    final arguments = requiredMap(json, 'arguments');
+    final itemId = optionalString(arguments, 'itemId');
+    final intent = CareIntent(
+      operationId: requiredString(json, 'operationId'),
+      operation: operation,
+      itemId: itemId,
+      clientWallTime: requiredDateTime(json, 'clientWallTime'),
+      clientMonotonicOffsetMs: rangedInt(
+        json,
+        'clientMonotonicOffsetMs',
+        min: 0,
+      ),
+    );
+    intent._validate();
+    return intent;
+  }
+
   JsonMap toJson({required String petId, required int baseRevision}) {
+    _validate();
+    if (petId.trim().isEmpty || baseRevision < 0) {
+      throw ArgumentError('care aggregate and revision must be valid');
+    }
+    return {
+      'operationId': operationId,
+      'aggregateType': 'pet',
+      'aggregateId': petId,
+      'baseRevision': baseRevision,
+      'operationType': operation.apiValue,
+      'arguments': <String, dynamic>{'itemId': ?itemId},
+      'clientWallTime': clientWallTime.toUtc().toIso8601String(),
+      'clientMonotonicOffsetMs': clientMonotonicOffsetMs,
+      'schemaVersion': 1,
+    };
+  }
+
+  JsonMap toStorageJson() {
+    _validate();
+    return {
+      'operationId': operationId,
+      'operationType': operation.apiValue,
+      'arguments': <String, dynamic>{'itemId': ?itemId},
+      'clientWallTime': clientWallTime.toUtc().toIso8601String(),
+      'clientMonotonicOffsetMs': clientMonotonicOffsetMs,
+    };
+  }
+
+  void _validate() {
+    if (operationId.trim().isEmpty || clientMonotonicOffsetMs < 0) {
+      throw ArgumentError('care intent identifiers and offsets must be valid');
+    }
     final allowedItem = switch (operation) {
       CareOperation.feed =>
         itemId == 'apple' || itemId == 'steak' || itemId == 'energy_drink',
@@ -41,16 +98,41 @@ class CareIntent {
         'is not supported for ${operation.apiValue}',
       );
     }
+  }
+}
+
+class QueuedCareCommand {
+  const QueuedCareCommand({
+    required this.sequence,
+    required this.petId,
+    required this.baseRevision,
+    required this.intent,
+  });
+
+  factory QueuedCareCommand.fromStorageJson(JsonMap json) {
+    return QueuedCareCommand(
+      sequence: rangedInt(json, 'sequence', min: 1),
+      petId: requiredString(json, 'petId'),
+      baseRevision: rangedInt(json, 'baseRevision', min: 0),
+      intent: CareIntent.fromStorageJson(requiredMap(json, 'intent')),
+    );
+  }
+
+  final int sequence;
+  final String petId;
+  final int baseRevision;
+  final CareIntent intent;
+
+  JsonMap toApiJson() {
+    return intent.toJson(petId: petId, baseRevision: baseRevision);
+  }
+
+  JsonMap toStorageJson() {
     return {
-      'operationId': operationId,
-      'aggregateType': 'pet',
-      'aggregateId': petId,
+      'sequence': sequence,
+      'petId': petId,
       'baseRevision': baseRevision,
-      'operationType': operation.apiValue,
-      'arguments': <String, dynamic>{'itemId': ?itemId},
-      'clientWallTime': clientWallTime.toUtc().toIso8601String(),
-      'clientMonotonicOffsetMs': clientMonotonicOffsetMs,
-      'schemaVersion': 1,
+      'intent': intent.toStorageJson(),
     };
   }
 }
@@ -78,6 +160,8 @@ enum CareCommandStatus {
     CareCommandStatus.applied || CareCommandStatus.alreadyApplied => true,
     _ => false,
   };
+
+  bool get isTerminal => this != CareCommandStatus.retryable;
 }
 
 class CarePetSnapshot {

@@ -64,6 +64,15 @@
 - Сервер хранит idempotency result не меньше максимального offline window плюс 7 дней.
 - Удаление аккаунта инвалидирует очередь; команды другого account ID никогда не мигрируют автоматически.
 
+Flutter V1 хранит небольшой журнал care (не более 100 команд) единым
+schema-versioned JSON в Keychain/Keystore через platform secure storage.
+`accountId` находится только в локальной оболочке журнала и не подменяет
+authenticated server identity. Команда сохраняется до HTTP-вызова; записи
+с `APPLIED`, `ALREADY_APPLIED` или подтверждённым `REJECTED_*` удаляются,
+а `RETRYABLE` и команды с неопределённым сетевым исходом остаются. При logout
+или несовпадении текущего `player.id` журнал очищается; повреждённый журнал
+fail-closed не перезаписывается.
+
 ## 6. API
 
 ```text

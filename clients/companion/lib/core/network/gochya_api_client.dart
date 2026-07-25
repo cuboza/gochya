@@ -100,6 +100,25 @@ class GochyaApiClient {
     required String petId,
     required int baseRevision,
     required CareIntent intent,
+  }) {
+    return reconcileCareBatch(
+      accessToken: accessToken,
+      deviceId: deviceId,
+      commands: [
+        QueuedCareCommand(
+          sequence: 1,
+          petId: petId,
+          baseRevision: baseRevision,
+          intent: intent,
+        ),
+      ],
+    );
+  }
+
+  Future<CareSyncResult> reconcileCareBatch({
+    required String accessToken,
+    required String deviceId,
+    required List<QueuedCareCommand> commands,
   }) async {
     if (deviceId.trim().isEmpty || deviceId.length > 128) {
       throw ArgumentError.value(
@@ -108,20 +127,36 @@ class GochyaApiClient {
         'must contain 1 to 128 characters',
       );
     }
-    if (petId.trim().isEmpty) {
-      throw ArgumentError.value(petId, 'petId', 'must not be empty');
+    if (commands.isEmpty || commands.length > 100) {
+      throw ArgumentError.value(
+        commands.length,
+        'commands',
+        'must contain between 1 and 100 entries',
+      );
     }
-    if (baseRevision < 0 || intent.clientMonotonicOffsetMs < 0) {
+    final petId = commands.first.petId;
+    if (petId.trim().isEmpty ||
+        commands.any((command) => command.petId != petId)) {
+      throw ArgumentError('one care batch must target one non-empty petId');
+    }
+    if (commands.any(
+      (command) =>
+          command.baseRevision < 0 ||
+          command.intent.clientMonotonicOffsetMs < 0,
+    )) {
       throw ArgumentError('care revisions and offsets must not be negative');
     }
+    final firstRevision = commands.first.baseRevision;
     final json = await _postObject(
       '/v1/sync/commands',
       accessToken,
       body: {
         'deviceId': deviceId,
-        'commands': [intent.toJson(petId: petId, baseRevision: baseRevision)],
+        'commands': commands
+            .map((command) => command.toApiJson())
+            .toList(growable: false),
       },
-      extraHeaders: {'If-Match': '$baseRevision'},
+      extraHeaders: {'If-Match': '$firstRevision'},
     );
     return _decode('care sync', () => CareSyncResult.fromJson(json));
   }

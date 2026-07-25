@@ -5,6 +5,8 @@ import 'package:gochya_companion/app/app.dart';
 import 'package:gochya_companion/core/models/profile_models.dart';
 import 'package:gochya_companion/core/network/gochya_api_client.dart';
 import 'package:gochya_companion/core/session/session_store.dart';
+import 'package:gochya_companion/features/care/care_queue_store.dart';
+import 'package:gochya_companion/features/care/care_repository.dart';
 import 'package:gochya_companion/features/home/profile_repository.dart';
 import 'package:gochya_companion/features/session/session_controller.dart';
 
@@ -16,6 +18,7 @@ void main() {
       ProviderScope(
         overrides: [
           sessionStoreProvider.overrideWithValue(_MemorySessionStore()),
+          careQueueStoreProvider.overrideWithValue(_MemoryCareQueueStore()),
         ],
         child: const GochyaApp(),
       ),
@@ -39,6 +42,7 @@ void main() {
       ProviderScope(
         overrides: [
           sessionStoreProvider.overrideWithValue(const _FailingSessionStore()),
+          careQueueStoreProvider.overrideWithValue(_MemoryCareQueueStore()),
         ],
         child: const GochyaApp(),
       ),
@@ -62,6 +66,7 @@ void main() {
       ProviderScope(
         overrides: [
           sessionStoreProvider.overrideWithValue(store),
+          careQueueStoreProvider.overrideWithValue(_MemoryCareQueueStore()),
           profileRepositoryProvider.overrideWithValue(_FakeRepository()),
         ],
         child: const GochyaApp(),
@@ -93,10 +98,12 @@ void main() {
 
   testWidgets('expired API session can be cleared safely', (tester) async {
     final store = _MemorySessionStore(tokens: _tokens);
+    final careQueueStore = _MemoryCareQueueStore();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           sessionStoreProvider.overrideWithValue(store),
+          careQueueStoreProvider.overrideWithValue(careQueueStore),
           profileRepositoryProvider.overrideWithValue(
             const _UnauthorizedRepository(),
           ),
@@ -111,6 +118,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(store.wasCleared, isTrue);
+    expect(careQueueStore.wasCleared, isTrue);
     expect(find.text('Токены не вводятся вручную'), findsOneWidget);
   });
 }
@@ -152,6 +160,27 @@ class _FailingSessionStore implements SessionStore {
 
   @override
   Future<void> write(SessionTokens tokens) => throw UnimplementedError();
+}
+
+class _MemoryCareQueueStore implements CareQueueStore {
+  CareQueue? queue;
+  bool wasCleared = false;
+
+  @override
+  Future<void> clear() async {
+    queue = null;
+    wasCleared = true;
+  }
+
+  @override
+  Future<CareQueue> loadForAccount(String accountId) async {
+    return queue ?? CareQueue.empty(accountId);
+  }
+
+  @override
+  Future<void> save(CareQueue queue) async {
+    this.queue = queue;
+  }
 }
 
 class _FakeRepository implements ProfileRepository {

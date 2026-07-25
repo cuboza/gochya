@@ -106,6 +106,7 @@ class _HomeContent extends StatelessWidget {
           _NeedsCard(needs: pet.needs),
           const SizedBox(height: 16),
           CareActions(
+            accountId: snapshot.profile.id,
             accessToken: accessToken,
             pet: pet,
             onSnapshotChanged: onCareChanged,

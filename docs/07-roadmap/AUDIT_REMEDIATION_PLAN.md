@@ -61,7 +61,7 @@
   вылупление; parental consent остаётся отдельным обязательным срезом.
 - [x] Подключить немедленный телефонный care reconcile:
   Feed/Clean/Play/Sleep → `If-Match` → идемпотентный retry → canonical refresh.
-- [ ] Добавить encrypted persistent offline queue, последовательный batch
+- [x] Добавить encrypted persistent offline queue, последовательный batch
   reconcile и account-bound очистку очереди.
 
 **Gate:** вертикальный Dojo-сценарий работает на реальном устройстве, а ключевые performance и security assumptions подтверждены измерениями.

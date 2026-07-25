@@ -30,7 +30,7 @@ void main() {
     expect(find.text('Питомец накормлен.'), findsOneWidget);
   });
 
-  testWidgets('network retry preserves the complete care intent', (
+  testWidgets('offline action is queued and reconciled explicitly', (
     tester,
   ) async {
     final repository = _RecordingCareRepository(failFirst: true);
@@ -45,19 +45,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('care-error')), findsOneWidget);
-    expect(find.byKey(const Key('care-retry')), findsOneWidget);
+    expect(find.byKey(const Key('care-pending-count')), findsOneWidget);
     final first = repository.intents.single;
 
-    await tester.tap(find.byKey(const Key('care-retry')));
+    await tester.tap(find.byKey(const Key('care-sync-pending')));
     await tester.pumpAndSettle();
 
-    expect(repository.intents, hasLength(2));
-    final retry = repository.intents.last;
-    expect(retry.operationId, first.operationId);
-    expect(retry.operation, first.operation);
-    expect(retry.itemId, first.itemId);
-    expect(retry.clientWallTime, first.clientWallTime);
-    expect(retry.clientMonotonicOffsetMs, first.clientMonotonicOffsetMs);
+    expect(repository.intents, hasLength(1));
+    expect(repository.reconciledIntent, same(first));
+    expect(find.byKey(const Key('care-pending-count')), findsNothing);
     expect(refreshes, 1);
   });
 }
@@ -74,6 +70,7 @@ Future<void> _pumpCare(
         home: Scaffold(
           body: SingleChildScrollView(
             child: CareActions(
+              accountId: 'player-1',
               accessToken: 'access-token',
               pet: _pet,
               onSnapshotChanged: onSnapshotChanged,
@@ -91,31 +88,81 @@ class _RecordingCareRepository implements CareRepository {
   final bool failFirst;
   final List<CareIntent> intents = [];
   final List<int> baseRevisions = [];
+  CareIntent? queuedIntent;
+  CareIntent? reconciledIntent;
 
   @override
-  Future<CareCommandResult> execute({
+  Future<CareSubmitResult> submit({
+    required String accountId,
     required String accessToken,
     required String petId,
-    required int baseRevision,
+    required int canonicalRevision,
     required CareIntent intent,
   }) async {
     intents.add(intent);
-    baseRevisions.add(baseRevision);
+    baseRevisions.add(canonicalRevision);
     if (failFirst && intents.length == 1) {
-      throw const ApiException(code: 'network_error', message: 'offline');
+      queuedIntent = intent;
+      return const CareSubmitResult(
+        commandResult: null,
+        canonicalSnapshot: null,
+        pendingCount: 1,
+        syncError: ApiException(code: 'network_error', message: 'offline'),
+      );
     }
-    return CareCommandResult(
-      operationId: intent.operationId,
-      status: CareCommandStatus.applied,
-      snapshot: CarePetSnapshot(
-        id: petId,
-        needs: const PetNeeds(hunger: 91, energy: 72, hygiene: 65, mood: 94),
-        revision: baseRevision + 1,
-        isWeak: false,
-        needsUpdatedAt: DateTime.utc(2026, 7, 25),
+    return CareSubmitResult(
+      commandResult: CareCommandResult(
+        operationId: intent.operationId,
+        status: CareCommandStatus.applied,
+        snapshot: CarePetSnapshot(
+          id: petId,
+          needs: const PetNeeds(hunger: 91, energy: 72, hygiene: 65, mood: 94),
+          revision: canonicalRevision + 1,
+          isWeak: false,
+          needsUpdatedAt: DateTime.utc(2026, 7, 25),
+        ),
       ),
+      canonicalSnapshot: null,
+      pendingCount: 0,
     );
   }
+
+  @override
+  Future<CareReconcileResult> reconcilePending({
+    required String accountId,
+    required String accessToken,
+  }) async {
+    final intent = queuedIntent;
+    if (intent == null) {
+      return const CareReconcileResult(results: [], pendingCount: 0);
+    }
+    queuedIntent = null;
+    reconciledIntent = intent;
+    return CareReconcileResult(
+      results: [
+        CareCommandResult(
+          operationId: intent.operationId,
+          status: CareCommandStatus.applied,
+          snapshot: CarePetSnapshot(
+            id: _pet.id,
+            needs: const PetNeeds(
+              hunger: 81,
+              energy: 72,
+              hygiene: 65,
+              mood: 100,
+            ),
+            revision: _pet.careRevision + 1,
+            isWeak: false,
+            needsUpdatedAt: DateTime.utc(2026, 7, 25),
+          ),
+        ),
+      ],
+      pendingCount: 0,
+    );
+  }
+
+  @override
+  Future<void> clearQueue() async {}
 }
 
 final _pet = PetSummary(
