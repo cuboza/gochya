@@ -104,6 +104,83 @@ void main() {
     expect(store.tokens, isNull);
   });
 
+  test('logout supersedes an in-flight refresh response', () async {
+    final store = _MemorySessionStore(_oldTokens);
+    final lifecycle = _MemorySessionLifecycle(store);
+    final api = _RefreshApi();
+    final runner = SessionRequestRunner(
+      api: api,
+      sessionStore: store,
+      sessionLifecycle: lifecycle,
+    );
+
+    final result = runner.run<void>(
+      accessToken: _oldTokens.accessToken,
+      request: (accessToken) async {
+        throw const ApiException(
+          statusCode: 401,
+          code: 'token_expired',
+          message: 'expired',
+        );
+      },
+    );
+    await api.refreshStarted.future;
+    await lifecycle.supersedeAndClear();
+    api.completeRefresh(_rotatedPair);
+
+    await expectLater(
+      result,
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.code,
+          'code',
+          'session_superseded',
+        ),
+      ),
+    );
+    expect(lifecycle.replacements, 0);
+    expect(lifecycle.expirations, 0);
+    expect(store.tokens, isNull);
+  });
+
+  test('old request is not retried with a new account session', () async {
+    final store = _MemorySessionStore(_oldTokens);
+    final lifecycle = _MemorySessionLifecycle(store);
+    final api = _RefreshApi();
+    final runner = SessionRequestRunner(
+      api: api,
+      sessionStore: store,
+      sessionLifecycle: lifecycle,
+    );
+    final seenTokens = <String>[];
+
+    await expectLater(
+      runner.run<void>(
+        accessToken: _oldTokens.accessToken,
+        request: (accessToken) async {
+          seenTokens.add(accessToken);
+          await lifecycle.supersedeWith(_newAccountTokens);
+          throw const ApiException(
+            statusCode: 401,
+            code: 'token_expired',
+            message: 'expired',
+          );
+        },
+      ),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.code,
+          'code',
+          'session_superseded',
+        ),
+      ),
+    );
+
+    expect(seenTokens, [_oldTokens.accessToken]);
+    expect(api.refreshCalls, 0);
+    expect(store.tokens?.accessToken, _newAccountTokens.accessToken);
+  });
+
   test('unauthorized retry with a rotated token expires the session', () async {
     final store = _MemorySessionStore(_oldTokens);
     final lifecycle = _MemorySessionLifecycle(store);
@@ -146,6 +223,11 @@ final _rotatedPair = AuthTokenPair(
   refreshToken: 'rotated-refresh',
   accessTokenExpiresAt: DateTime.utc(2026, 7, 25, 12, 30),
   refreshTokenExpiresAt: DateTime.utc(2026, 8, 24, 12, 15),
+);
+
+const _newAccountTokens = SessionTokens(
+  accessToken: 'new-account-access',
+  refreshToken: 'new-account-refresh',
 );
 
 class _RefreshApi extends GochyaApiClient {
@@ -203,14 +285,35 @@ class _MemorySessionLifecycle implements SessionLifecycle {
   int expirations = 0;
 
   @override
+  int sessionGeneration = 0;
+
+  @override
   Future<void> expireSession() async {
+    sessionGeneration++;
     expirations++;
     await store.clear();
   }
 
   @override
-  Future<void> replaceAfterRefresh(SessionTokens tokens) async {
+  Future<bool> replaceAfterRefresh(
+    SessionTokens tokens, {
+    required int expectedGeneration,
+  }) async {
+    if (expectedGeneration != sessionGeneration) {
+      return false;
+    }
     replacements++;
+    await store.write(tokens);
+    return true;
+  }
+
+  Future<void> supersedeAndClear() async {
+    sessionGeneration++;
+    await store.clear();
+  }
+
+  Future<void> supersedeWith(SessionTokens tokens) async {
+    sessionGeneration++;
     await store.write(tokens);
   }
 }

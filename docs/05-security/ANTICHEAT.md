@@ -353,6 +353,10 @@ Exit code `0` закрывает cron/deployment gate, `2` означает на
   локальную сессию: старый token уже мог быть потреблён, а его повтор вызвал бы
   reuse detection и отзыв всей family.
 - Logout не раскрывает, существовал ли переданный токен, и отзывает всю family.
+- Телефон при явном logout ограниченно ждёт server-side revoke, затем независимо
+  от сети удаляет локальную пару, provider state и account-bound очередь.
+  Session generation отклоняет поздний refresh-ответ и запрещает повтор intent
+  старой сессии с credentials последующего входа.
 - Google login принимает только подписанный ID token с разрешённым OAuth client
   ID, Google issuer, актуальным сроком и стабильным `sub`. Переданный клиентом
   Google user ID или email не принимается как доказательство личности.

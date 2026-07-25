@@ -39,6 +39,8 @@ abstract interface class AuthRepository {
 
   Future<SessionTokens> signInWithGoogle();
 
+  Future<void> revokeSession(String refreshToken);
+
   Future<void> signOutFromProvider();
 }
 
@@ -100,6 +102,11 @@ class ApiAuthRepository implements AuthRepository {
       }
       rethrow;
     }
+  }
+
+  @override
+  Future<void> revokeSession(String refreshToken) {
+    return apiClient.logoutSession(refreshToken);
   }
 
   @override

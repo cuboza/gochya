@@ -67,6 +67,12 @@ revision; reconcile сохраняет порядок, разбивает пот
 остаётся в очереди, logout/смена `player.id` очищает старый журнал, а повреждённый
 payload не затирается автоматически. После определённого ответа клиент
 перечитывает canonical profile/pet snapshot; формул потребностей в Dart нет.
+Вкладка Shop читает авторитетные `GET /v1/shop` и `GET /v1/me/items`, показывает
+серверные Koins/цены и отправляет в `POST /v1/shop/buy` только `itemId`,
+`quantity` и UUID `Idempotency-Key`. Результат применяется исключительно из
+`PurchaseResponse`. Неопределённый сетевой исход блокирует следующие покупки до
+canonical refresh каталога и инвентаря; клиент не ставит денежные операции в
+offline-очередь и не повторяет их с новым ключом.
 Authenticated profile, onboarding и care boundaries используют общий
 single-flight refresh runner: первый `401` вызывает одну rotation, параллельные
 запросы ждут её, а затем каждый intent повторяется ровно один раз. Новые access
@@ -87,6 +93,12 @@ AuthenticationServices request и отправляет тот же nonce с Appl
 в `POST /v1/auth/apple`. Email/full name scopes не запрашиваются, Apple credential
 не хранится, GOCHYA-сессия появляется только после backend verification.
 Недоступный native provider и истёкший nonce обрабатываются fail-closed.
+Явный logout best-effort вызывает `POST /v1/auth/logout` до локальной очистки,
+чтобы отозвать server-side token family, но не удерживает refresh token на
+устройстве при офлайне: ожидание ограничено тремя секундами, после чего session
+store, provider state и account-bound очередь стираются. Монотонное поколение
+сессии инвалидирует уже начатые refresh-операции; поздний ответ не может
+восстановить вышедшую сессию или выполнить старый intent под новым аккаунтом.
 Shared Core FFI остаётся следующим срезом.
 
 ---
@@ -176,6 +188,9 @@ companion/
 - Категории: Расходники, Косметика, Снаряжение, Декор, Яйца/Катализаторы, Спецпредложения.
 - Каждый предмет: иконка, редкость, цена в Koins/Gems/Crowns.
 - Гача-баннеры — отдельная вкладка с опубликованными дропами.
+- В первом исполняемом срезе доступны серверные care/breeding SKU за Koins и
+  приватный инвентарь; расширенные валюты и категории остаются следующими
+  контрактами.
 
 ### 4.3. Гача (Gacha)
 - Анимация pull'а (Lottie/Rive).

@@ -69,6 +69,10 @@
   backend, общий installation ID и fail-closed UI без OAuth-конфигурации.
 - [x] Подключить нативный Sign in with Apple на iOS: capability, одноразовый
   server nonce, identity-token exchange и fail-closed provider availability.
+- [x] Завершить lifecycle телефонной сессии: server-side logout revoke,
+  гарантированная offline-очистка и generation barrier для позднего refresh.
+- [x] Подключить телефонный Koins-shop: авторитетные каталог/инвентарь,
+  идемпотентная покупка и блокировка повторной оплаты при неопределённом исходе.
 
 **Gate:** вертикальный Dojo-сценарий работает на реальном устройстве, а ключевые performance и security assumptions подтверждены измерениями.
 

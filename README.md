@@ -37,6 +37,10 @@ iOS-клиент выполняет нативный Sign in with Apple: пол�
 nonce, передаёт его AuthenticationServices без преобразования и обменивает
 Apple identity token только через backend. Capability включён в Xcode project,
 а недоступный провайдер или невалидный nonce не создают локальную сессию.
+Явный выход телефона теперь best-effort отзывает server-side refresh family и
+всегда очищает локальные credentials/очередь даже офлайн. Session generation
+блокирует позднюю refresh-ротацию, чтобы она не восстановила сессию после logout
+и не повторила intent старого аккаунта с токеном нового входа.
 Wear OS device enrollment требует access token, одноразовый server challenge,
 proof-of-possession нового Ed25519-ключа и Play Integrity verdict, привязанный
 к тому же регистрационному payload. Challenge хранится только как SHA-256 и
@@ -90,6 +94,10 @@ Account-bound encrypted journal сохраняет до 100 команд пер�
 batch одного питомца. Терминально подтверждённые команды удаляются, `RETRYABLE`
 остаётся в очереди, а logout/смена аккаунта очищает старый журнал. Итоговое
 состояние всегда перечитывается с сервера.
+Вкладка магазина читает авторитетные каталог, Koins и приватный инвентарь,
+отправляет только `itemId`/`quantity` с UUID idempotency key и применяет
+канонический результат покупки. Потерянный ответ блокирует новые покупки до
+повторной синхронизации, поэтому клиент не создаёт второй денежный intent.
 Его CI проверяет форматирование, analyzer, widget/API tests и нативные Android/iOS
 сборки.
 Реальный Wear OS device gate и watchOS App Attest gate ещё не выполнялись.

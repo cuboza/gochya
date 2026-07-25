@@ -38,6 +38,7 @@ class SessionRequestRunner implements AuthenticatedRequestRunner {
     required String accessToken,
     required Future<T> Function(String accessToken) request,
   }) async {
+    final expectedGeneration = sessionLifecycle.sessionGeneration;
     try {
       return await request(accessToken);
     } on ApiException catch (error) {
@@ -46,7 +47,13 @@ class SessionRequestRunner implements AuthenticatedRequestRunner {
       }
     }
 
-    final rotated = await _refreshAfterUnauthorized(accessToken);
+    final rotated = await _refreshAfterUnauthorized(
+      accessToken,
+      expectedGeneration,
+    );
+    if (expectedGeneration != sessionLifecycle.sessionGeneration) {
+      throw _sessionSuperseded();
+    }
     try {
       return await request(rotated.accessToken);
     } on ApiException catch (error) {
@@ -59,8 +66,15 @@ class SessionRequestRunner implements AuthenticatedRequestRunner {
 
   Future<SessionTokens> _refreshAfterUnauthorized(
     String rejectedAccessToken,
+    int expectedGeneration,
   ) async {
+    if (expectedGeneration != sessionLifecycle.sessionGeneration) {
+      throw _sessionSuperseded();
+    }
     final current = await sessionStore.read();
+    if (expectedGeneration != sessionLifecycle.sessionGeneration) {
+      throw _sessionSuperseded();
+    }
     if (current == null) {
       throw const ApiException(
         statusCode: 401,
@@ -76,7 +90,7 @@ class SessionRequestRunner implements AuthenticatedRequestRunner {
     if (activeRefresh != null) {
       return activeRefresh;
     }
-    final refresh = _rotate(current);
+    final refresh = _rotate(current, expectedGeneration);
     _refreshInFlight = refresh;
     try {
       return await refresh;
@@ -87,12 +101,19 @@ class SessionRequestRunner implements AuthenticatedRequestRunner {
     }
   }
 
-  Future<SessionTokens> _rotate(SessionTokens current) async {
+  Future<SessionTokens> _rotate(
+    SessionTokens current,
+    int expectedGeneration,
+  ) async {
+    late final SessionTokens rotated;
+    late final bool accepted;
     try {
       final pair = await api.refreshSession(current.refreshToken);
-      final rotated = SessionTokens.fromAuthTokenPair(pair);
-      await sessionLifecycle.replaceAfterRefresh(rotated);
-      return rotated;
+      rotated = SessionTokens.fromAuthTokenPair(pair);
+      accepted = await sessionLifecycle.replaceAfterRefresh(
+        rotated,
+        expectedGeneration: expectedGeneration,
+      );
     } on Object {
       // A refresh response can be lost after the server has consumed the
       // one-time token. Retrying that token risks reuse detection and family
@@ -100,5 +121,17 @@ class SessionRequestRunner implements AuthenticatedRequestRunner {
       await sessionLifecycle.expireSession();
       rethrow;
     }
+    if (!accepted) {
+      throw _sessionSuperseded();
+    }
+    return rotated;
+  }
+
+  ApiException _sessionSuperseded() {
+    return const ApiException(
+      statusCode: 401,
+      code: 'session_superseded',
+      message: 'The session changed while the request was in progress.',
+    );
   }
 }

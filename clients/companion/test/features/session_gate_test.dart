@@ -210,14 +210,82 @@ void main() {
     expect(find.text('Предок'), findsOneWidget);
   });
 
-  testWidgets('expired API session can be cleared safely', (tester) async {
+  testWidgets('profile logout revokes refresh family and clears local data', (
+    tester,
+  ) async {
     final store = _MemorySessionStore(tokens: _tokens);
     final careQueueStore = _MemoryCareQueueStore();
+    final authRepository = _TrackingAuthRepository();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           sessionStoreProvider.overrideWithValue(store),
           careQueueStoreProvider.overrideWithValue(careQueueStore),
+          authRepositoryProvider.overrideWithValue(authRepository),
+          profileRepositoryProvider.overrideWithValue(_FakeRepository()),
+        ],
+        child: const GochyaApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Профиль'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Выйти и отозвать сессию'));
+    await tester.pumpAndSettle();
+
+    expect(authRepository.revokedRefreshToken, 'refresh-token');
+    expect(authRepository.providerSignOutCalls, 1);
+    expect(store.wasCleared, isTrue);
+    expect(careQueueStore.wasCleared, isTrue);
+    expect(find.text('Токены не вводятся вручную'), findsOneWidget);
+  });
+
+  testWidgets('offline logout still clears every local credential', (
+    tester,
+  ) async {
+    final store = _MemorySessionStore(tokens: _tokens);
+    final careQueueStore = _MemoryCareQueueStore();
+    final authRepository = _TrackingAuthRepository(
+      revokeError: const ApiException(
+        code: 'network_error',
+        message: 'offline',
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(store),
+          careQueueStoreProvider.overrideWithValue(careQueueStore),
+          authRepositoryProvider.overrideWithValue(authRepository),
+          profileRepositoryProvider.overrideWithValue(_FakeRepository()),
+        ],
+        child: const GochyaApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Профиль'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Выйти и отозвать сессию'));
+    await tester.pumpAndSettle();
+
+    expect(authRepository.revokedRefreshToken, 'refresh-token');
+    expect(store.wasCleared, isTrue);
+    expect(careQueueStore.wasCleared, isTrue);
+    expect(find.text('Токены не вводятся вручную'), findsOneWidget);
+  });
+
+  testWidgets('expired API session can be cleared safely', (tester) async {
+    final store = _MemorySessionStore(tokens: _tokens);
+    final careQueueStore = _MemoryCareQueueStore();
+    final authRepository = _TrackingAuthRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionStoreProvider.overrideWithValue(store),
+          careQueueStoreProvider.overrideWithValue(careQueueStore),
+          authRepositoryProvider.overrideWithValue(authRepository),
           profileRepositoryProvider.overrideWithValue(
             const _UnauthorizedRepository(),
           ),
@@ -233,6 +301,7 @@ void main() {
 
     expect(store.wasCleared, isTrue);
     expect(careQueueStore.wasCleared, isTrue);
+    expect(authRepository.revokedRefreshToken, 'refresh-token');
     expect(find.text('Токены не вводятся вручную'), findsOneWidget);
   });
 }
@@ -301,6 +370,9 @@ class _AvailableAuthRepository implements AuthRepository {
   @override
   Future<SessionTokens> signInWithGoogle() => _signIn();
 
+  @override
+  Future<void> revokeSession(String refreshToken) async {}
+
   Future<SessionTokens> _signIn() async {
     if (error case final error?) {
       throw error;
@@ -310,6 +382,39 @@ class _AvailableAuthRepository implements AuthRepository {
 
   @override
   Future<void> signOutFromProvider() async {}
+}
+
+class _TrackingAuthRepository implements AuthRepository {
+  _TrackingAuthRepository({this.revokeError});
+
+  final Object? revokeError;
+  String? revokedRefreshToken;
+  int providerSignOutCalls = 0;
+
+  @override
+  bool get isGoogleSignInAvailable => false;
+
+  @override
+  Future<bool> isAppleSignInAvailable() async => false;
+
+  @override
+  Future<void> revokeSession(String refreshToken) async {
+    revokedRefreshToken = refreshToken;
+    if (revokeError case final error?) {
+      throw error;
+    }
+  }
+
+  @override
+  Future<SessionTokens> signInWithApple() => throw UnimplementedError();
+
+  @override
+  Future<SessionTokens> signInWithGoogle() => throw UnimplementedError();
+
+  @override
+  Future<void> signOutFromProvider() async {
+    providerSignOutCalls++;
+  }
 }
 
 class _MemoryCareQueueStore implements CareQueueStore {

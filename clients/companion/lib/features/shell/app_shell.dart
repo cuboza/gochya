@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/session/session_store.dart';
 import '../home/home_screen.dart';
 import '../session/session_controller.dart';
+import '../shop/shop_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({required this.tokens, super.key});
@@ -19,22 +20,22 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = <Widget>[
-      HomeScreen(accessToken: widget.tokens.accessToken),
-      const _ComingSoonScreen(
-        icon: Icons.storefront_outlined,
-        title: 'Магазин',
-      ),
-      const _ComingSoonScreen(
+    final page = switch (_selectedIndex) {
+      0 => HomeScreen(accessToken: widget.tokens.accessToken),
+      1 => ShopScreen(accessToken: widget.tokens.accessToken),
+      2 => const _ComingSoonScreen(
         icon: Icons.sports_martial_arts_outlined,
         title: 'PvP',
       ),
-      const _ComingSoonScreen(icon: Icons.egg_alt_outlined, title: 'Бридинг'),
-      const _ProfileScreen(),
-    ];
+      3 => const _ComingSoonScreen(
+        icon: Icons.egg_alt_outlined,
+        title: 'Бридинг',
+      ),
+      _ => const _ProfileScreen(),
+    };
 
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: pages),
+      body: page,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
@@ -111,7 +112,7 @@ class _ProfileScreen extends ConsumerWidget {
               ref.read(sessionControllerProvider.notifier).signOut();
             },
             icon: const Icon(Icons.logout_rounded),
-            label: const Text('Выйти и удалить локальную сессию'),
+            label: const Text('Выйти и отозвать сессию'),
           ),
         ),
       ),

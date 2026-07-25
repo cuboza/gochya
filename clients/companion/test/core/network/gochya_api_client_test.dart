@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gochya_companion/core/models/care_models.dart';
 import 'package:gochya_companion/core/models/onboarding_models.dart';
+import 'package:gochya_companion/core/models/shop_models.dart';
 import 'package:gochya_companion/core/network/gochya_api_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -117,6 +118,24 @@ void main() {
       expect(pair.accessTokenExpiresAt, DateTime.parse('2026-07-25T10:15:00Z'));
     });
 
+    test('revokes a refresh family and accepts no-content response', () async {
+      late http.Request request;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((value) async {
+          request = value;
+          return http.Response('', 204);
+        }),
+      );
+
+      await client.logoutSession('current-refresh');
+
+      expect(request.method, 'POST');
+      expect(request.url.path, '/v1/auth/logout');
+      expect(request.headers, isNot(contains('authorization')));
+      expect(jsonDecode(request.body), {'refreshToken': 'current-refresh'});
+    });
+
     test('sends bearer auth and decodes profile and pets', () async {
       final seenPaths = <String>[];
       final client = GochyaApiClient(
@@ -143,6 +162,137 @@ void main() {
       expect(pets, hasLength(1));
       expect(pets.single.needs.energy, 72);
       expect(seenPaths, ['/v1/me', '/v1/me/pets']);
+    });
+
+    test('loads the shop and buys only by item, quantity, and key', () async {
+      final requests = <http.Request>[];
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          expect(request.headers['authorization'], 'Bearer access-token');
+          return switch (request.url.path) {
+            '/v1/shop' => _jsonResponse({
+              'items': [
+                {
+                  'id': 'apple',
+                  'category': 'care',
+                  'currency': 'koins',
+                  'unitPrice': 20,
+                  'isStackable': true,
+                },
+                {
+                  'id': 'love_crystal',
+                  'category': 'breeding',
+                  'currency': 'koins',
+                  'unitPrice': 200,
+                  'isStackable': true,
+                },
+              ],
+            }, 200),
+            '/v1/me/items' => _jsonResponse({
+              'koins': 100,
+              'items': [
+                {'itemId': 'apple', 'quantity': 2},
+              ],
+            }, 200),
+            '/v1/shop/buy' => _jsonResponse({
+              'itemId': 'apple',
+              'purchasedQuantity': 1,
+              'itemQuantity': 3,
+              'unitPriceKoins': 20,
+              'koinsSpent': 20,
+              'koinsRemaining': 80,
+              'purchasedAt': '2026-07-25T12:00:00Z',
+            }, 200),
+            _ => http.Response('not found', 404),
+          };
+        }),
+      );
+
+      final catalog = await client.getShopCatalog('access-token');
+      final inventory = await client.getShopInventory('access-token');
+      final purchase = await client.purchaseShopItem(
+        accessToken: 'access-token',
+        itemId: ShopItemId.apple,
+        quantity: 1,
+        idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      );
+
+      expect(catalog.items, hasLength(2));
+      expect(catalog.items.first.unitPrice, 20);
+      expect(inventory.koins, 100);
+      expect(inventory.quantityOf(ShopItemId.apple), 2);
+      expect(purchase.koinsRemaining, 80);
+      expect(purchase.itemQuantity, 3);
+      expect(requests.last.method, 'POST');
+      expect(requests.last.headers['idempotency-key'], isNotNull);
+      expect(
+        requests.last.headers['idempotency-key'],
+        '11111111-1111-4111-8111-111111111111',
+      );
+      expect(jsonDecode(requests.last.body), {
+        'itemId': 'apple',
+        'quantity': 1,
+      });
+    });
+
+    test('rejects inconsistent authoritative shop payloads', () async {
+      var call = 0;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          call++;
+          if (call == 1) {
+            return _jsonResponse({
+              'items': [
+                {
+                  'id': 'apple',
+                  'category': 'breeding',
+                  'currency': 'koins',
+                  'unitPrice': 20,
+                  'isStackable': true,
+                },
+              ],
+            }, 200);
+          }
+          return _jsonResponse({
+            'itemId': 'steak',
+            'purchasedQuantity': 2,
+            'itemQuantity': 2,
+            'unitPriceKoins': 20,
+            'koinsSpent': 40,
+            'koinsRemaining': 80,
+            'purchasedAt': '2026-07-25T12:00:00Z',
+          }, 200);
+        }),
+      );
+
+      await expectLater(
+        client.getShopCatalog('access-token'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'invalid_response',
+          ),
+        ),
+      );
+      await expectLater(
+        client.purchaseShopItem(
+          accessToken: 'access-token',
+          itemId: ShopItemId.apple,
+          quantity: 2,
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'invalid_response',
+          ),
+        ),
+      );
     });
 
     test('decodes and validates bounded lineage', () async {

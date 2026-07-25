@@ -17,6 +17,9 @@ Flutter-клиент для Android и iOS. Первый исполняемый 
   инкубацию и вылупление первого питомца;
 - server-authoritative кормление яблоком, чистку, игру и сон через
   `POST /v1/sync/commands`, revision precondition и canonical refresh;
+- server-authoritative магазин с каталогом, балансом Koins, инвентарём и
+  идемпотентной покупкой через `GET /v1/shop`, `GET /v1/me/items` и
+  `POST /v1/shop/buy`;
 - account-bound encrypted offline-очередь до 100 care-команд с автоматическим
   последовательным batch reconcile после запуска;
 - fail-closed состояния повреждённого ответа, недоступной сессии и
@@ -42,6 +45,12 @@ UI нет. Дата рождения отправляется только в ag
 `RETRYABLE` остаётся в защищённом хранилище. Клиент не рассчитывает локальный
 эффект care и после ответа перечитывает canonical состояние.
 
+В магазине клиент отправляет только идентификатор товара, количество и новый
+UUID `Idempotency-Key`: цену, валюту и итоговый баланс определяет backend. UI
+применяет только подтверждённый `PurchaseResponse`. Если ответ мог потеряться
+после отправки, новые покупки блокируются до повторного чтения авторитетных
+каталога и инвентаря; offline-очереди для денежных операций нет.
+
 Authenticated profile, onboarding и care-запросы при первом `401` выполняют одну
 общую `POST /v1/auth/refresh` rotation и повторяются ровно один раз с новой
 access/refresh pair. Новая пара вместе со сроками заменяет прежнюю одним
@@ -50,6 +59,13 @@ refresh token отклонён, повторный запрос снова по�
 новой пары не удалась или исход refresh неопределён из-за потери ответа, сессия
 и account-bound care-очередь очищаются fail-closed. Старый одноразовый refresh
 не повторяется, чтобы не вызвать server-side reuse revocation.
+
+Пользовательский выход отдельно вызывает `POST /v1/auth/logout` с текущим
+refresh token, чтобы backend отозвал его token family. Ожидание revoke ограничено
+тремя секундами: при недоступной сети Keychain/Keystore, provider state и
+account-bound очередь всё равно очищаются локально. Поколение сессии не позволяет
+позднему refresh-ответу после logout записать новую пару или повторить запрос
+старого аккаунта с токеном нового входа.
 
 ## Запуск
 
@@ -80,6 +96,19 @@ client secret в приложение добавлять нельзя.
 flutter run \
   --dart-define=GOCHYA_API_BASE_URL=http://10.0.2.2:8080
 ```
+
+Чтобы исследовать телефонный UI без OAuth и запущенного backend, debug-сборку
+можно открыть с локальным demo-игроком:
+
+```bash
+flutter run \
+  --dart-define=GOCHYA_DEMO_PLAYER=true \
+  --dart-define=GOCHYA_API_BASE_URL=http://10.0.2.2:8080
+```
+
+Demo-профиль содержит Нику, питомца Моти, родословную, действия ухода, 500 Koins
+и магазин. Подмена активируется только совместно с `kDebugMode`; release-сборка
+игнорирует `GOCHYA_DEMO_PLAYER`.
 
 HTTP разрешён клиентом только для loopback и стандартных адресов host loopback
 Android Emulator; release-сборка Android не включает cleartext override.

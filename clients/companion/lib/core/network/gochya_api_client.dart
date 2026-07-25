@@ -7,6 +7,7 @@ import '../models/auth_models.dart';
 import '../models/care_models.dart';
 import '../models/onboarding_models.dart';
 import '../models/profile_models.dart';
+import '../models/shop_models.dart';
 
 class GochyaApiClient {
   GochyaApiClient({
@@ -97,9 +98,70 @@ class GochyaApiClient {
     return _decode('refresh session', () => AuthTokenPair.fromJson(json));
   }
 
+  Future<void> logoutSession(String refreshToken) async {
+    if (refreshToken.trim().isEmpty) {
+      throw ArgumentError.value(
+        refreshToken,
+        'refreshToken',
+        'must not be empty',
+      );
+    }
+    final decoded = await _request(
+      method: 'POST',
+      path: '/v1/auth/logout',
+      body: {'refreshToken': refreshToken},
+    );
+    if (decoded != null) {
+      throw const ApiException(
+        code: 'invalid_response',
+        message: 'Server returned an invalid logout response.',
+      );
+    }
+  }
+
   Future<PlayerProfile> getProfile(String accessToken) async {
     final json = await _getObject('/v1/me', accessToken);
     return _decode('profile', () => PlayerProfile.fromJson(json));
+  }
+
+  Future<ShopCatalog> getShopCatalog(String accessToken) async {
+    final json = await _getObject('/v1/shop', accessToken);
+    return _decode('shop catalog', () => ShopCatalog.fromJson(json));
+  }
+
+  Future<ShopInventory> getShopInventory(String accessToken) async {
+    final json = await _getObject('/v1/me/items', accessToken);
+    return _decode('shop inventory', () => ShopInventory.fromJson(json));
+  }
+
+  Future<ShopPurchase> purchaseShopItem({
+    required String accessToken,
+    required ShopItemId itemId,
+    required int quantity,
+    required String idempotencyKey,
+  }) async {
+    if (quantity < 1 || quantity > 100) {
+      throw ArgumentError.value(
+        quantity,
+        'quantity',
+        'must be between 1 and 100',
+      );
+    }
+    final json = await _postObject(
+      '/v1/shop/buy',
+      accessToken,
+      body: {'itemId': itemId.apiValue, 'quantity': quantity},
+      idempotencyKey: idempotencyKey,
+    );
+    return _decode('shop purchase', () {
+      final purchase = ShopPurchase.fromJson(json);
+      if (purchase.itemId != itemId || purchase.purchasedQuantity != quantity) {
+        throw const FormatException(
+          'purchase response does not match the request',
+        );
+      }
+      return purchase;
+    });
   }
 
   Future<List<PetSummary>> getPets(String accessToken) async {
@@ -348,6 +410,18 @@ class GochyaApiClient {
         code: 'network_error',
         message: 'The server could not be reached.',
       );
+    }
+
+    if (response.statusCode == 204) {
+      if (response.bodyBytes.isNotEmpty) {
+        throw ApiException(
+          statusCode: response.statusCode,
+          code: 'invalid_response',
+          message: 'Server returned a body with a no-content response.',
+          requestId: response.headers['x-request-id'],
+        );
+      }
+      return null;
     }
 
     Object? decoded;
