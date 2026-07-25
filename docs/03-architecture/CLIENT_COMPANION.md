@@ -52,8 +52,17 @@ Material app shell, Keychain/Keystore session store и read-only
 невозможные needs, mutation mask за пределами 14 бит и повреждённые пары родителей
 не маскируются в UI, а переходят в безопасное состояние ошибки. Production API
 допускается только по HTTPS; HTTP оставлен только для loopback-разработки.
-Provider OAuth UI, refresh orchestration, care-команды и Shared Core FFI остаются
-следующими срезами.
+Телефонный onboarding подключён к server-authoritative age gate и starter egg:
+клиент генерирует UUID idempotency keys, не сохраняет дату рождения, возобновляет
+инкубацию через `GET /v1/me/eggs` и вызывает серверное вылупление. Категория
+`under13` останавливается fail-closed до реализации проверяемого parental consent.
+Первый care-срез отправляет Feed с `apple`, Clean, Play и Sleep в
+`POST /v1/sync/commands`: `If-Match` привязан к `careRevision`, случайный
+installation `deviceId` хранится в Keychain/Keystore, а неопределённый сетевой
+результат повторяется с полностью тем же intent. После любого определённого
+ответа клиент перечитывает canonical profile/pet snapshot; формул потребностей
+в Dart нет. Persistent encrypted offline journal, Provider OAuth UI, refresh
+orchestration и Shared Core FFI остаются следующими срезами.
 
 ---
 

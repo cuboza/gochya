@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import '../../core/models/onboarding_models.dart';
 import '../../core/models/profile_models.dart';
 import '../../core/network/gochya_api_client.dart';
+import '../care/care_actions.dart';
+import '../onboarding/onboarding_repository.dart';
+import '../onboarding/onboarding_screen.dart';
 import '../session/session_controller.dart';
 import 'lineage_screen.dart';
 import 'profile_repository.dart';
@@ -36,7 +42,11 @@ class HomeScreen extends ConsumerWidget {
           onRefresh: () =>
               ref.refresh(homeSnapshotProvider(accessToken).future),
           child: _HomeContent(
+            accessToken: accessToken,
             snapshot: value,
+            onCareChanged: () {
+              ref.invalidate(homeSnapshotProvider(accessToken));
+            },
             onOpenLineage: (pet) {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -53,9 +63,16 @@ class HomeScreen extends ConsumerWidget {
 }
 
 class _HomeContent extends StatelessWidget {
-  const _HomeContent({required this.snapshot, required this.onOpenLineage});
+  const _HomeContent({
+    required this.accessToken,
+    required this.snapshot,
+    required this.onCareChanged,
+    required this.onOpenLineage,
+  });
 
+  final String accessToken;
   final HomeSnapshot snapshot;
+  final VoidCallback onCareChanged;
   final ValueChanged<PetSummary> onOpenLineage;
 
   @override
@@ -82,11 +99,17 @@ class _HomeContent extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         if (pet == null)
-          const _NoPetCard()
+          _NoPetState(accessToken: accessToken)
         else ...[
           _PetHero(pet: pet),
           const SizedBox(height: 16),
           _NeedsCard(needs: pet.needs),
+          const SizedBox(height: 16),
+          CareActions(
+            accessToken: accessToken,
+            pet: pet,
+            onSnapshotChanged: onCareChanged,
+          ),
           const SizedBox(height: 16),
           Card(
             child: Padding(
@@ -288,29 +311,245 @@ class _NeedIndicator extends StatelessWidget {
   }
 }
 
+class _NoPetState extends ConsumerWidget {
+  const _NoPetState({required this.accessToken});
+
+  final String accessToken;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final eggs = ref.watch(onboardingEggsProvider(accessToken));
+    return eggs.when(
+      loading: () => const Card(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Проверяем инкубатор…'),
+            ],
+          ),
+        ),
+      ),
+      error: (error, stackTrace) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const Icon(Icons.cloud_off_outlined, size: 52),
+              const SizedBox(height: 12),
+              const Text(
+                'Не удалось проверить инкубатор',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: () {
+                  ref.invalidate(onboardingEggsProvider(accessToken));
+                },
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Повторить'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      data: (values) {
+        if (values.isNotEmpty) {
+          return _IncubatingEggCard(
+            accessToken: accessToken,
+            egg: values.first,
+          );
+        }
+        return _NoPetCard(
+          onStart: () async {
+            final result = await Navigator.of(context).push<StarterEggResult>(
+              MaterialPageRoute<StarterEggResult>(
+                builder: (context) =>
+                    OnboardingScreen(accessToken: accessToken),
+              ),
+            );
+            if (result != null) {
+              ref.invalidate(onboardingEggsProvider(accessToken));
+            }
+          },
+        );
+      },
+    );
+  }
+}
+
 class _NoPetCard extends StatelessWidget {
-  const _NoPetCard();
+  const _NoPetCard({required this.onStart});
+
+  final VoidCallback onStart;
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
+    return Card(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            Icon(Icons.egg_outlined, size: 56),
-            SizedBox(height: 12),
-            Text('У тебя пока нет питомца'),
-            SizedBox(height: 4),
-            Text(
+            const Icon(Icons.egg_outlined, size: 56),
+            const SizedBox(height: 12),
+            const Text(
+              'У тебя пока нет питомца',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            const Text(
               'Стартовый питомец появится после завершения онбординга.',
               textAlign: TextAlign.center,
               style: TextStyle(color: GochyaColors.muted),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: onStart,
+              icon: const Icon(Icons.auto_awesome_rounded),
+              label: const Text('Создать первого питомца'),
             ),
           ],
         ),
       ),
     );
+  }
+}
+
+class _IncubatingEggCard extends ConsumerStatefulWidget {
+  const _IncubatingEggCard({required this.accessToken, required this.egg});
+
+  final String accessToken;
+  final EggSummary egg;
+
+  @override
+  ConsumerState<_IncubatingEggCard> createState() => _IncubatingEggCardState();
+}
+
+class _IncubatingEggCardState extends ConsumerState<_IncubatingEggCard> {
+  Timer? _timer;
+  late DateTime _now;
+  var _isHatching = false;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _now = DateTime.now();
+    _scheduleTick();
+  }
+
+  @override
+  void didUpdateWidget(covariant _IncubatingEggCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.egg.id != widget.egg.id ||
+        oldWidget.egg.incubateUntil != widget.egg.incubateUntil) {
+      _now = DateTime.now();
+      _scheduleTick();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = widget.egg.incubateUntil.difference(_now);
+    final isReady = remaining <= Duration.zero;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Icon(
+              isReady ? Icons.egg_rounded : Icons.egg_outlined,
+              size: 64,
+              color: isReady ? GochyaColors.secondary : null,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              isReady ? 'Яйцо готово!' : 'Яйцо в инкубаторе',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isReady
+                  ? 'Пора познакомиться с первым питомцем.'
+                  : 'До вылупления: ${_remainingLabel(remaining)}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: GochyaColors.muted),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _hatchErrorMessage(_error!),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: GochyaColors.warning),
+              ),
+            ],
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: !isReady || _isHatching ? null : _hatch,
+              icon: _isHatching
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.celebration_rounded),
+              label: Text(_isHatching ? 'Вылупляем…' : 'Вылупить питомца'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _scheduleTick() {
+    _timer?.cancel();
+    if (widget.egg.isReadyAt(_now)) {
+      return;
+    }
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _now = DateTime.now();
+      });
+      if (widget.egg.isReadyAt(_now)) {
+        timer.cancel();
+      }
+    });
+  }
+
+  Future<void> _hatch() async {
+    setState(() {
+      _isHatching = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(onboardingRepositoryProvider)
+          .hatchEgg(widget.accessToken, widget.egg.id);
+      if (!mounted) {
+        return;
+      }
+      ref.invalidate(onboardingEggsProvider(widget.accessToken));
+      ref.invalidate(homeSnapshotProvider(widget.accessToken));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isHatching = false;
+        _error = error;
+        _now = DateTime.now();
+      });
+    }
   }
 }
 
@@ -388,4 +627,23 @@ String _stageLabel(String stage) {
     'adult' => 'Взрослый',
     _ => stage,
   };
+}
+
+String _remainingLabel(Duration value) {
+  final seconds = value.inSeconds + (value.inMilliseconds % 1000 == 0 ? 0 : 1);
+  if (seconds < 60) {
+    return '$seconds сек.';
+  }
+  final minutes = (seconds / 60).ceil();
+  return '$minutes мин.';
+}
+
+String _hatchErrorMessage(Object error) {
+  if (error is ApiException && error.code == 'egg_not_ready') {
+    return 'Сервер ещё завершает инкубацию. Попробуй через секунду.';
+  }
+  if (error is ApiException && error.isUnauthorized) {
+    return 'Сессия истекла. Войди заново, чтобы продолжить.';
+  }
+  return 'Не удалось вылупить питомца. Проверь соединение и повтори.';
 }

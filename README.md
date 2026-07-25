@@ -65,6 +65,16 @@ PostgreSQL readiness probe, HTTP timeouts и graceful shutdown.
 В [`clients/companion/`](./clients/companion/) создан исполняемый Flutter-клиент
 Android/iOS: защищённая локальная сессия, Material app shell, типизированные
 profile/pets/lineage contracts, главная активного питомца и bounded lineage UI.
+Новый игрок проходит обязательный privacy-safe age gate, выбирает одно из трёх
+server-authoritative starter-яиц, возобновляет инкубацию после перезапуска и
+вылупляет первого питомца. Категория `under13` блокируется до появления
+проверяемого parental-consent flow, без клиентского обхода.
+Активного питомца уже можно кормить яблоком, чистить, развлекать и укладывать
+спать: Flutter-клиент отправляет care-команды в `POST /v1/sync/commands` с
+`If-Match`, постоянным локальным `deviceId` и полным идемпотентным intent.
+Неопределённый сетевой результат повторяется с тем же payload, а итоговое
+состояние всегда перечитывается с сервера. Зашифрованный многокомандный offline
+journal остаётся следующим срезом.
 Его CI проверяет форматирование, analyzer, widget/API tests и нативные Android/iOS
 сборки.
 Реальный Wear OS device gate и watchOS App Attest gate ещё не выполнялись.

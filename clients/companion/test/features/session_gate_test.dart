@@ -72,14 +72,18 @@ void main() {
     expect(find.text('Привет, Ника'), findsOneWidget);
     expect(find.text('Моти'), findsOneWidget);
     expect(find.text('81%'), findsOneWidget);
+    final lineageButton = find.text('Открыть родословную');
+    final homeScrollable = find.byType(Scrollable).first;
     await tester.scrollUntilVisible(
-      find.text('Открыть родословную'),
+      lineageButton,
       300,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: homeScrollable,
     );
+    await tester.drag(homeScrollable, const Offset(0, -100));
+    await tester.pumpAndSettle();
     expect(find.text('Открыть родословную'), findsOneWidget);
 
-    await tester.tap(find.text('Открыть родословную'));
+    await tester.tap(lineageButton);
     await tester.pumpAndSettle();
 
     expect(find.text('Родословная · Моти'), findsOneWidget);

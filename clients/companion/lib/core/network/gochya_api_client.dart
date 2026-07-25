@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/care_models.dart';
+import '../models/onboarding_models.dart';
 import '../models/profile_models.dart';
 
 class GochyaApiClient {
@@ -43,6 +45,87 @@ class GochyaApiClient {
     return _decode('lineage', () => LineageTree.fromJson(json));
   }
 
+  Future<AgeGateResult> recordAgeGate({
+    required String accessToken,
+    required String birthDate,
+    required String idempotencyKey,
+  }) async {
+    final json = await _postObject(
+      '/v1/me/onboarding/age-gate',
+      accessToken,
+      body: {'birthDate': birthDate},
+      idempotencyKey: idempotencyKey,
+    );
+    return _decode('age gate', () => AgeGateResult.fromJson(json));
+  }
+
+  Future<StarterEggResult> selectStarterEgg({
+    required String accessToken,
+    required StarterElement element,
+    required String idempotencyKey,
+  }) async {
+    final json = await _postObject(
+      '/v1/me/onboarding/starter-egg',
+      accessToken,
+      body: {'element': element.apiValue},
+      idempotencyKey: idempotencyKey,
+    );
+    return _decode('starter egg', () => StarterEggResult.fromJson(json));
+  }
+
+  Future<List<EggSummary>> getEggs(String accessToken) async {
+    final json = await _getArray('/v1/me/eggs', accessToken);
+    return _decode('eggs', () {
+      return json
+          .map((value) => EggSummary.fromJson(asMap(value, 'eggs[]')))
+          .toList(growable: false);
+    });
+  }
+
+  Future<HatchedPet> hatchEgg(String accessToken, String eggId) async {
+    if (eggId.trim().isEmpty) {
+      throw ArgumentError.value(eggId, 'eggId', 'must not be empty');
+    }
+    final encodedEggId = Uri.encodeComponent(eggId);
+    final json = await _postObject(
+      '/v1/me/eggs/$encodedEggId/hatch',
+      accessToken,
+    );
+    return _decode('hatched pet', () => HatchedPet.fromJson(json));
+  }
+
+  Future<CareSyncResult> reconcileCare({
+    required String accessToken,
+    required String deviceId,
+    required String petId,
+    required int baseRevision,
+    required CareIntent intent,
+  }) async {
+    if (deviceId.trim().isEmpty || deviceId.length > 128) {
+      throw ArgumentError.value(
+        deviceId,
+        'deviceId',
+        'must contain 1 to 128 characters',
+      );
+    }
+    if (petId.trim().isEmpty) {
+      throw ArgumentError.value(petId, 'petId', 'must not be empty');
+    }
+    if (baseRevision < 0 || intent.clientMonotonicOffsetMs < 0) {
+      throw ArgumentError('care revisions and offsets must not be negative');
+    }
+    final json = await _postObject(
+      '/v1/sync/commands',
+      accessToken,
+      body: {
+        'deviceId': deviceId,
+        'commands': [intent.toJson(petId: petId, baseRevision: baseRevision)],
+      },
+      extraHeaders: {'If-Match': '$baseRevision'},
+    );
+    return _decode('care sync', () => CareSyncResult.fromJson(json));
+  }
+
   void close() => _httpClient.close();
 
   Future<JsonMap> _getObject(String path, String accessToken) async {
@@ -67,7 +150,42 @@ class GochyaApiClient {
     return decoded;
   }
 
+  Future<JsonMap> _postObject(
+    String path,
+    String accessToken, {
+    JsonMap? body,
+    String? idempotencyKey,
+    Map<String, String>? extraHeaders,
+  }) async {
+    final decoded = await _request(
+      method: 'POST',
+      path: path,
+      accessToken: accessToken,
+      body: body,
+      idempotencyKey: idempotencyKey,
+      extraHeaders: extraHeaders,
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw const ApiException(
+        code: 'invalid_response',
+        message: 'Server returned an invalid object response.',
+      );
+    }
+    return decoded;
+  }
+
   Future<Object?> _get(String path, String accessToken) async {
+    return _request(method: 'GET', path: path, accessToken: accessToken);
+  }
+
+  Future<Object?> _request({
+    required String method,
+    required String path,
+    required String accessToken,
+    JsonMap? body,
+    String? idempotencyKey,
+    Map<String, String>? extraHeaders,
+  }) async {
     if (accessToken.trim().isEmpty) {
       throw ArgumentError.value(
         accessToken,
@@ -76,17 +194,26 @@ class GochyaApiClient {
       );
     }
 
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      'Authorization': 'Bearer $accessToken',
+      if (body != null) 'Content-Type': 'application/json; charset=utf-8',
+      'Idempotency-Key': ?idempotencyKey,
+      ...?extraHeaders,
+    };
     late final http.Response response;
     try {
-      response = await _httpClient
-          .get(
-            baseUri.resolve(path),
-            headers: {
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $accessToken',
-            },
-          )
-          .timeout(requestTimeout);
+      final uri = baseUri.resolve(path);
+      final request = switch (method) {
+        'GET' => _httpClient.get(uri, headers: headers),
+        'POST' => _httpClient.post(
+          uri,
+          headers: headers,
+          body: body == null ? null : jsonEncode(body),
+        ),
+        _ => throw StateError('unsupported HTTP method $method'),
+      };
+      response = await request.timeout(requestTimeout);
     } on TimeoutException {
       throw const ApiException(
         code: 'request_timeout',

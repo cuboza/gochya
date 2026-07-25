@@ -56,6 +56,13 @@
 - [ ] Настроить CI для Rust, Go, Flutter, Wear OS, ABI и документации.
   Rust/Go/Core и Flutter analyzer/tests/Android/iOS build уже автоматизированы;
   отдельные Wear OS и полный documentation gate ещё не закрыты.
+- [x] Подключить первый телефонный onboarding-срез:
+  age gate → server-authoritative starter egg → возобновляемая инкубация →
+  вылупление; parental consent остаётся отдельным обязательным срезом.
+- [x] Подключить немедленный телефонный care reconcile:
+  Feed/Clean/Play/Sleep → `If-Match` → идемпотентный retry → canonical refresh.
+- [ ] Добавить encrypted persistent offline queue, последовательный batch
+  reconcile и account-bound очистку очереди.
 
 **Gate:** вертикальный Dojo-сценарий работает на реальном устройстве, а ключевые performance и security assumptions подтверждены измерениями.
 

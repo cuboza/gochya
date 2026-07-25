@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gochya_companion/core/models/care_models.dart';
+import 'package:gochya_companion/core/models/onboarding_models.dart';
 import 'package:gochya_companion/core/network/gochya_api_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -105,6 +107,220 @@ void main() {
       );
     });
 
+    test(
+      'sends idempotent onboarding requests and decodes responses',
+      () async {
+        final requests = <http.Request>[];
+        final client = GochyaApiClient(
+          baseUri: Uri.parse('https://api.example.test'),
+          httpClient: MockClient((request) async {
+            requests.add(request);
+            if (request.url.path.endsWith('/age-gate')) {
+              return _jsonResponse({
+                'status': 'eligible',
+                'coppaRestricted': false,
+                'recordedAt': '2026-07-25T10:00:00Z',
+              }, 200);
+            }
+            return _jsonResponse({
+              'eggId': 'egg-1',
+              'element': 'water',
+              'incubateUntil': '2026-07-25T10:00:05Z',
+            }, 200);
+          }),
+        );
+
+        final age = await client.recordAgeGate(
+          accessToken: 'access-token',
+          birthDate: '2000-01-02',
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        );
+        final starter = await client.selectStarterEgg(
+          accessToken: 'access-token',
+          element: StarterElement.water,
+          idempotencyKey: '22222222-2222-4222-8222-222222222222',
+        );
+
+        expect(age.isEligible, isTrue);
+        expect(starter.element, StarterElement.water);
+        expect(requests, hasLength(2));
+        expect(requests.first.method, 'POST');
+        expect(
+          requests.first.headers['idempotency-key'],
+          '11111111-1111-4111-8111-111111111111',
+        );
+        expect(jsonDecode(requests.first.body), {'birthDate': '2000-01-02'});
+        expect(
+          requests.last.headers['idempotency-key'],
+          '22222222-2222-4222-8222-222222222222',
+        );
+        expect(jsonDecode(requests.last.body), {'element': 'water'});
+      },
+    );
+
+    test('lists an incubating egg and hatches with an empty body', () async {
+      final requests = <http.Request>[];
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.method == 'GET') {
+            return _jsonResponse([
+              {
+                'id': 'egg-1',
+                'ownerId': 'player-1',
+                'origin': 'starter',
+                'genome': {'element': 0},
+                'incubateUntil': '2026-07-25T10:00:05Z',
+                'mutatedGenes': 0,
+                'createdAt': '2026-07-25T10:00:00Z',
+              },
+            ], 200);
+          }
+          return _jsonResponse({
+            'id': 'pet-1',
+            'ownerId': 'player-1',
+            'genome': {'element': 0},
+            'stage': 'baby',
+            'level': 1,
+            'xp': 0,
+            'needs': {
+              'hunger': 100,
+              'energy': 100,
+              'hygiene': 100,
+              'mood': 100,
+            },
+            'stats': {'str': 1, 'agi': 1, 'end': 1, 'foc': 1},
+            'generation': 0,
+            'isActive': true,
+            'createdAt': '2026-07-25T10:00:05Z',
+            'isWeak': false,
+          }, 200);
+        }),
+      );
+
+      final eggs = await client.getEggs('access-token');
+      final pet = await client.hatchEgg('access-token', 'egg-1');
+
+      expect(eggs.single.origin, 'starter');
+      expect(eggs.single.parentAId, isNull);
+      expect(pet.id, 'pet-1');
+      expect(pet.isActive, isTrue);
+      expect(requests.last.method, 'POST');
+      expect(requests.last.url.path, '/v1/me/eggs/egg-1/hatch');
+      expect(requests.last.body, isEmpty);
+    });
+
+    test('sends revision-bound care command and decodes snapshot', () async {
+      late http.Request request;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((value) async {
+          request = value;
+          return _jsonResponse({
+            'results': [
+              {
+                'operationId': '11111111-1111-4111-8111-111111111111',
+                'status': 'APPLIED',
+                'snapshot': _careSnapshotJson,
+              },
+            ],
+            'canonicalSnapshots': [_careSnapshotJson],
+            'newRevision': 10,
+            'serverTime': '2026-07-25T10:00:01Z',
+          }, 200);
+        }),
+      );
+      final intent = CareIntent(
+        operationId: '11111111-1111-4111-8111-111111111111',
+        operation: CareOperation.feed,
+        itemId: 'apple',
+        clientWallTime: DateTime.parse('2026-07-25T10:00:00Z'),
+        clientMonotonicOffsetMs: 1234,
+      );
+
+      final response = await client.reconcileCare(
+        accessToken: 'access-token',
+        deviceId: '22222222-2222-4222-8222-222222222222',
+        petId: '33333333-3333-4333-8333-333333333333',
+        baseRevision: 9,
+        intent: intent,
+      );
+
+      expect(request.method, 'POST');
+      expect(request.url.path, '/v1/sync/commands');
+      expect(request.headers['if-match'], '9');
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['deviceId'], '22222222-2222-4222-8222-222222222222');
+      final command =
+          (body['commands'] as List<dynamic>).single as Map<String, dynamic>;
+      expect(command['operationId'], intent.operationId);
+      expect(command['aggregateType'], 'pet');
+      expect(command['aggregateId'], '33333333-3333-4333-8333-333333333333');
+      expect(command['baseRevision'], 9);
+      expect(command['operationType'], 'feed');
+      expect(command['arguments'], {'itemId': 'apple'});
+      expect(command['clientMonotonicOffsetMs'], 1234);
+      expect(command['schemaVersion'], 1);
+      expect(response.resultFor(intent.operationId).status.isApplied, isTrue);
+      expect(response.canonicalSnapshots.single.revision, 10);
+    });
+
+    test('rejects inconsistent age and egg payloads', () async {
+      var call = 0;
+      final client = GochyaApiClient(
+        baseUri: Uri.parse('https://api.example.test'),
+        httpClient: MockClient((request) async {
+          call++;
+          if (call == 1) {
+            return _jsonResponse({
+              'status': 'eligible',
+              'coppaRestricted': true,
+              'recordedAt': '2026-07-25T10:00:00Z',
+            }, 200);
+          }
+          return _jsonResponse([
+            {
+              'id': 'egg-1',
+              'ownerId': 'player-1',
+              'origin': 'starter',
+              'genome': {'element': 0},
+              'parentAId': 'pet-a',
+              'parentBId': 'pet-b',
+              'incubateUntil': '2026-07-25T10:00:05Z',
+              'mutatedGenes': 0,
+              'createdAt': '2026-07-25T10:00:00Z',
+            },
+          ], 200);
+        }),
+      );
+
+      await expectLater(
+        client.recordAgeGate(
+          accessToken: 'access-token',
+          birthDate: '2000-01-02',
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'invalid_response',
+          ),
+        ),
+      );
+      await expectLater(
+        client.getEggs('access-token'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'invalid_response',
+          ),
+        ),
+      );
+    });
+
     test('rejects malformed needs instead of clamping them', () async {
       final malformedPet = Map<String, dynamic>.from(_petJson);
       malformedPet['needs'] = {
@@ -182,6 +398,14 @@ final _petJson = <String, dynamic>{
   'isWeak': false,
   'careRevision': 9,
   'needsUpdatedAt': '2026-07-24T09:55:00Z',
+};
+
+final _careSnapshotJson = <String, dynamic>{
+  'id': '33333333-3333-4333-8333-333333333333',
+  'needs': {'hunger': 91, 'energy': 72, 'hygiene': 65, 'mood': 94},
+  'revision': 10,
+  'isWeak': false,
+  'needsUpdatedAt': '2026-07-25T10:00:01Z',
 };
 
 http.Response _jsonResponse(Object? body, int statusCode) {

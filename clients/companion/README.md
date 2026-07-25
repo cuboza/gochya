@@ -8,11 +8,22 @@ Flutter-клиент для Android и iOS. Первый исполняемый 
   `GET /v1/me/pets/:id/lineage`;
 - главную активного питомца с четырьмя потребностями;
 - bounded lineage до трёх поколений;
+- обязательный age gate, выбор Fire/Water/Earth starter-яйца, возобновляемую
+  инкубацию и вылупление первого питомца;
+- server-authoritative кормление яблоком, чистку, игру и сон через
+  `POST /v1/sync/commands`, revision precondition и canonical refresh;
 - fail-closed состояния повреждённого ответа, недоступной сессии и HTTP 401.
 
 OAuth UI намеренно не имитируется: до подключения provider credentials приложение
 показывает честное состояние без сессии. Ручного ввода bearer token в production UI
-нет.
+нет. Дата рождения отправляется только в age-gate запрос и не сохраняется
+клиентом; `under13` не может продолжить, пока серверный parental-consent flow
+не реализован.
+Случайный installation `deviceId` хранится в Keychain/Keystore. Если ответ care
+теряется в сети, UI повторяет исходный `operationId`, wall time и monotonic
+offset, поэтому серверная дедупликация не допускает двойного эффекта. Текущий
+срез выполняет немедленный online reconcile; зашифрованная persistent-очередь
+для полноценной офлайн-игры ещё не подключена.
 
 ## Запуск
 
@@ -39,8 +50,10 @@ Android Emulator; release-сборка Android не включает cleartext o
 
 ```bash
 dart format --output=none --set-exit-if-changed lib test
-flutter analyze
+dart analyze lib test
 flutter test
+flutter build apk --debug \
+  --dart-define=GOCHYA_API_BASE_URL=https://api.example.com
 ```
 
 CI дополнительно собирает debug APK и iOS Simulator application. Production build
