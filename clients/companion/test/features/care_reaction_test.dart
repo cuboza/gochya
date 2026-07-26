@@ -66,6 +66,32 @@ void main() {
 
     expect(_action(tester), CreatureAction.sleeping);
   });
+
+  testWidgets('reduce motion skips the reaction and its particles', (
+    tester,
+  ) async {
+    // This test alone runs in the suite's default reduced-motion mode.
+    TestWidgetsFlutterBinding
+        .instance
+        .platformDispatcher
+        .accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(
+      disableAnimations: true,
+    );
+    await _pumpHome(tester);
+
+    await tester.tap(find.byKey(const Key('care-feed')));
+
+    // Stepping frame by frame matters here. Flutter already shortens the
+    // controller to 5% under reduce motion, so a single late pump would find
+    // the reaction finished and pass whether or not it ever ran. The reaction
+    // must never start, so every intermediate frame is checked.
+    // The flying treat is rendered only while the action is `eat`, so an
+    // action that never leaves idle also means no particle was emitted.
+    for (var frame = 0; frame < 12; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 5));
+      expect(_action(tester), CreatureAction.idle);
+    }
+  });
 }
 
 CreatureAction _action(WidgetTester tester) {

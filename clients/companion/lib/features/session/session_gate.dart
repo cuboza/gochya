@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import '../../app/gochya_loader.dart';
 import '../../app/theme.dart';
 import '../../core/session/session_store.dart';
 import '../../core/network/gochya_api_client.dart';
@@ -38,12 +39,7 @@ class _SessionLoadingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Semantics(
-          label: 'Загрузка защищённой сессии',
-          child: const CircularProgressIndicator(),
-        ),
-      ),
+      body: const GochyaLoader(caption: 'Открываем защищённую сессию…'),
     );
   }
 }

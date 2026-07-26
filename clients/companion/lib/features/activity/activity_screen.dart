@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/gochya_loader.dart';
 import '../../app/theme.dart';
 import '../../core/models/activity_models.dart';
 import '../../core/network/gochya_api_client.dart';
@@ -31,7 +32,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Активность')),
       body: week.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const GochyaLoader(caption: 'Считаем Vitality…'),
         error: (error, stackTrace) => _ActivityError(
           message: _loadMessage(error),
           onRetry: () =>

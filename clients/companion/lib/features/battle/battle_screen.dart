@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/gochya_loader.dart';
 import '../../app/theme.dart';
 import '../../core/identifiers/uuid_v4.dart';
 import '../../core/models/battle_models.dart';
@@ -52,7 +53,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
               loading: () => const Card(
                 child: Padding(
                   padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
+                  child: GochyaLoader(caption: 'Ищем соперника…'),
                 ),
               ),
               error: (error, stackTrace) => const _MessageCard(
@@ -538,7 +539,7 @@ class _HistorySection extends ConsumerWidget {
       loading: () => const Card(
         child: Padding(
           padding: EdgeInsets.all(24),
-          child: Center(child: CircularProgressIndicator()),
+          child: GochyaLoader(caption: 'Ищем соперника…'),
         ),
       ),
       error: (error, stackTrace) => const _MessageCard(

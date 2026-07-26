@@ -16,6 +16,25 @@ abstract final class GochyaColors {
   static const mood = Color(0xFFFF8FB1);
 }
 
+/// Activity ring ramp from `ART_BIBLE.md` §3.4.
+///
+/// Deliberately one hue at three lightness steps rather than three categorical
+/// colours: needs, elements, rarities and UI states already claim every hue in
+/// the palette, and minting a fourth categorical scale is exactly the collision
+/// the §3.3 and §5 audits removed. The rings are told apart by radius, icon and
+/// label — never by colour alone, which also satisfies the contrast rules in
+/// `UX_UI.md` §10. All three clear the 3:1 non-text threshold on `#1A1B2E`.
+abstract final class GochyaRingColors {
+  /// Steps — outer ring.
+  static const steps = Color(0xFFC4B5FD);
+
+  /// Sleep — middle ring.
+  static const sleep = Color(0xFF9B7DFF);
+
+  /// Active calories — inner ring.
+  static const calories = Color(0xFF7C5CFF);
+}
+
 /// Rarity frame palette from `ART_BIBLE.md` §3.3. It is a scale of its own:
 /// none of these colours may double as an element or a UI-state colour, and
 /// Epic is frame-only because it does not reach the 4.5:1 text threshold.

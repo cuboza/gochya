@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/gochya_loader.dart';
 import '../../app/theme.dart';
 import '../../core/identifiers/uuid_v4.dart';
 import '../../core/models/technique_models.dart';
@@ -33,7 +34,7 @@ class _LoadoutScreenState extends ConsumerState<LoadoutScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Боевые карты')),
       body: snapshot.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const GochyaLoader(caption: 'Раскладываем карты…'),
         error: (error, stackTrace) => _LoadoutError(
           message: _loadMessage(error),
           onRetry: () =>

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/gochya_loader.dart';
 import '../../app/theme.dart';
 import '../../core/identifiers/uuid_v4.dart';
 import '../../core/models/shop_models.dart';
@@ -35,12 +36,12 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Магазин')),
       body: switch ((_isLoading, _snapshot, _loadError)) {
-        (true, null, _) => const Center(child: CircularProgressIndicator()),
+        (true, null, _) => const GochyaLoader(caption: 'Открываем магазин…'),
         (_, null, final error?) => _ShopLoadError(
           message: _messageFor(error),
           onRetry: _load,
         ),
-        (_, null, null) => const Center(child: CircularProgressIndicator()),
+        (_, null, null) => const GochyaLoader(caption: 'Открываем магазин…'),
         (_, final snapshot?, _) => RefreshIndicator(
           onRefresh: _load,
           child: ListView(

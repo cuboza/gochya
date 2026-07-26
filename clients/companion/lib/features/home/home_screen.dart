@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/gochya_loader.dart';
 import '../../app/theme.dart';
+import '../../core/ffi/core_provider.dart';
+import '../../core/ffi/gochya_core.dart';
 import '../../core/models/care_models.dart';
 import '../../core/models/onboarding_models.dart';
 import '../../core/models/profile_models.dart';
@@ -17,7 +20,10 @@ import '../onboarding/onboarding_repository.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../session/session_controller.dart';
 import 'lineage_screen.dart';
+import 'need_indicator.dart';
+import 'needs_prediction.dart';
 import 'profile_repository.dart';
+import 'symbiosis_card.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({required this.accessToken, super.key});
@@ -33,13 +39,29 @@ class HomeScreen extends ConsumerWidget {
           'GOCHYA',
           style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.4),
         ),
+        actions: [
+          // Symbiosis is a headline mechanic, so it gets a permanent entry
+          // point instead of living only in a card below the fold.
+          IconButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (context) =>
+                      ActivityScreen(accessToken: accessToken),
+                ),
+              );
+            },
+            icon: const Icon(Icons.monitor_heart_outlined),
+            tooltip: 'Активность и Vitality',
+          ),
+        ],
       ),
       body: snapshot.when(
         // A care action reloads the profile. Dropping back to a spinner would
         // blank the pet mid-reaction, so previously loaded data stays on
         // screen while the reload runs.
         skipLoadingOnReload: true,
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const GochyaLoader(caption: 'Будим питомца…'),
         error: (error, stackTrace) => _HomeError(
           error: error,
           onRetry: () => ref.invalidate(homeSnapshotProvider(accessToken)),
@@ -53,6 +75,7 @@ class HomeScreen extends ConsumerWidget {
           child: _HomeContent(
             accessToken: accessToken,
             snapshot: value,
+            core: ref.watch(gochyaCoreProvider),
             onCareChanged: () {
               ref.invalidate(homeSnapshotProvider(accessToken));
             },
@@ -75,12 +98,14 @@ class _HomeContent extends StatefulWidget {
   const _HomeContent({
     required this.accessToken,
     required this.snapshot,
+    required this.core,
     required this.onCareChanged,
     required this.onOpenLineage,
   });
 
   final String accessToken;
   final HomeSnapshot snapshot;
+  final GochyaCore? core;
   final VoidCallback onCareChanged;
   final ValueChanged<PetSummary> onOpenLineage;
 
@@ -120,6 +145,14 @@ class _HomeContentState extends State<_HomeContent>
   }
 
   void _playReaction(CareOperation operation) {
+    // Reduce motion skips the reaction outright (`ART_BIBLE.md` §9.3). Relying
+    // on Flutter shortening the controller to 5% is not enough: the reaction
+    // would still run, and its particles would flash across the screen.
+    // Nothing is lost by skipping — the care result arrives from the server
+    // either way, and the needs card shows it.
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return;
+    }
     final duration = _durations[operation];
     final action = switch (operation) {
       CareOperation.feed => CreatureAction.eat,
@@ -167,7 +200,15 @@ class _HomeContentState extends State<_HomeContent>
         else ...[
           _PetHero(pet: pet, reaction: _action, reactionProgress: _reaction),
           const SizedBox(height: 16),
-          _NeedsCard(needs: pet.needs),
+          // Decay between profile reads is predicted by the Core, so the pet
+          // does not sit frozen at whatever the last response said.
+          _NeedsCard(
+            needs: predictNeeds(
+              core: widget.core,
+              pet: pet,
+              now: DateTime.now().toUtc(),
+            ),
+          ),
           const SizedBox(height: 16),
           CareActions(
             accountId: snapshot.profile.id,
@@ -176,6 +217,8 @@ class _HomeContentState extends State<_HomeContent>
             onSnapshotChanged: widget.onCareChanged,
             onCareApplied: _playReaction,
           ),
+          const SizedBox(height: 16),
+          SymbiosisCard(accessToken: accessToken),
           const SizedBox(height: 16),
           Card(
             child: Padding(
@@ -203,51 +246,8 @@ class _HomeContentState extends State<_HomeContent>
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          _ActivityEntryCard(accessToken: accessToken),
         ],
       ],
-    );
-  }
-}
-
-class _ActivityEntryCard extends StatelessWidget {
-  const _ActivityEntryCard({required this.accessToken});
-
-  final String accessToken;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Симбиоз',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            const Text('Vitality за неделю и карта дня за 100 Vitality.'),
-            const SizedBox(height: 16),
-            FilledButton.tonalIcon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) =>
-                        ActivityScreen(accessToken: accessToken),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.monitor_heart_outlined),
-              label: const Text('Активность и Vitality'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -453,71 +453,26 @@ class _NeedsCard extends StatelessWidget {
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 18),
-            _NeedIndicator(
+            NeedIndicator(
               label: 'Сытость',
               value: needs.hunger,
               color: GochyaColors.hunger,
             ),
-            _NeedIndicator(
+            NeedIndicator(
               label: 'Энергия',
               value: needs.energy,
               color: GochyaColors.energy,
             ),
-            _NeedIndicator(
+            NeedIndicator(
               label: 'Гигиена',
               value: needs.hygiene,
               color: GochyaColors.hygiene,
             ),
-            _NeedIndicator(
+            NeedIndicator(
               label: 'Настроение',
               value: needs.mood,
               color: GochyaColors.mood,
               bottomPadding: 0,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NeedIndicator extends StatelessWidget {
-  const _NeedIndicator({
-    required this.label,
-    required this.value,
-    required this.color,
-    this.bottomPadding = 14,
-  });
-
-  final String label;
-  final int value;
-  final Color color;
-  final double bottomPadding;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomPadding),
-      child: Semantics(
-        label: '$label: $value из 100',
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(child: Text(label)),
-                Text(
-                  '$value%',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
-            const SizedBox(height: 7),
-            LinearProgressIndicator(
-              value: value / 100,
-              minHeight: 9,
-              borderRadius: BorderRadius.circular(10),
-              color: color,
-              backgroundColor: color.withValues(alpha: 0.14),
             ),
           ],
         ),
@@ -539,11 +494,7 @@ class _NoPetState extends ConsumerWidget {
         child: Padding(
           padding: EdgeInsets.all(24),
           child: Column(
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Проверяем инкубатор…'),
-            ],
+            children: [GochyaLoader(caption: 'Проверяем инкубатор…')],
           ),
         ),
       ),

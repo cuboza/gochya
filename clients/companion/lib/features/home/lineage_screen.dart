@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/gochya_loader.dart';
 import '../../app/theme.dart';
 import '../../core/models/profile_models.dart';
 import '../../core/network/gochya_api_client.dart';
@@ -23,7 +24,7 @@ class LineageScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: Text('Родословная · ${pet.label}')),
       body: lineage.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const GochyaLoader(caption: 'Разбираем родословную…'),
         error: (error, stackTrace) => _LineageError(
           error: error,
           onRetry: () => ref.invalidate(lineageProvider(request)),
