@@ -40,6 +40,7 @@ bash tools/check-core.sh          # Rust: fmt, clippy, тесты, C ABI smoke
 bash tools/check-server.sh        # Go: gofmt, vet, тесты с cgo (нужен PostgreSQL)
 node tools/check-markdown-links.mjs
 
+bash tools/build-core-host.sh     # FFI-тесты клиента идут против реального ядра
 cd clients/companion
 dart format lib test
 dart analyze lib test             # флаг --no-pub у flutter analyze падает на info
@@ -61,6 +62,9 @@ flutter test --no-pub
 - UI-текст — русский; идентификаторы, комментарии и docstring — английский.
 - Демо-режим (`lib/dev/demo_mode.dart`) подменяет репозитории: добавил новый
   репозиторий — добавь и его демо-реализацию.
+- Мост в Core (`core/ffi/`) не содержит арифметики: только marshalling и перевод
+  не-`Ok` статуса в `CoreException`. Ядро отвергло вход — пробрасывай отказ, не
+  клампи. Его тесты идут против реальной библиотеки.
 
 ## Что ещё не сделано
 

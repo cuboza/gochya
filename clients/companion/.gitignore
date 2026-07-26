@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Shared Core binaries are produced by tools/build-core-android.sh, not committed
+/android/app/src/main/jniLibs/

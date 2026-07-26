@@ -159,7 +159,34 @@ Epic используется только как рамка: он не прох
 перекрывает любую разовую реакцию. Главный экран не сбрасывается в спиннер при
 перечитывании профиля после ухода, иначе питомец пропадал бы посреди анимации.
 Idle-анимация питомца и проигрывание боя выключаются в режиме reduced motion.
-Shared Core FFI остаётся следующим срезом.
+
+Shared Core подключён через `dart:ffi` в `lib/core/ffi/`: `core_types.dart`
+описывает versioned C-структуры и строгие value-типы, `core_bindings.dart`
+разрешает библиотеку и ищет символы, `gochya_core.dart` даёт типизированный API.
+Мост не содержит собственной арифметики — только marshalling и перевод
+не-`Ok` статуса в исключение.
+Загрузка библиотеки различается по платформам: iOS линкует Rust staticlib в
+главный бинарник и ищет символы через `DynamicLibrary.process()` (аудит T3, §6;
+`DynamicLibrary.open` на встроенном фреймворке запрещён App Review, поэтому
+fallback на него не предусмотрен), Android грузит `libgochya_core.so` из
+`jniLibs`, а хостовые платформы обязаны передать путь явно — их используют
+только тесты и тулинг. При открытии моста `gochya_abi_version()` сверяется с
+ABI, под который собран клиент: разошедшееся ядро считало бы другие формулы,
+чем сервер, поэтому мост падает, а не продолжает.
+В этом срезе связан уход: `gochya_advance_needs_v1` и `gochya_apply_care_v1`.
+Бой, геном и экономика остаются серверными и через FFI не идут; симбиоз ждёт
+ingestion health-данных. Локальный расчёт ухода — предсказание между чтениями
+профиля, а не источник истины: авторитетное состояние по-прежнему приходит из
+идемпотентной care-мутации.
+Ядро отказывается продвигать needs больше чем на 24 часа
+(`CoreStatus.domainRejected`), и этот отказ проносится наверх, а не клампится:
+после более долгого отсутствия правильный ответ есть только у сервера, а кламп
+был бы клиентской кривой распада. Дробный распад переносится в remainder-полях,
+поэтому шаг 60×1 мин даёт то же состояние, что один час.
+Тесты моста идут против настоящей библиотеки, а не мока: мок согласился бы с
+ошибкой marshalling. Перед `flutter test` нужно собрать ядро —
+`bash tools/build-core-host.sh`; Android-библиотеки собирает
+`tools/build-core-android.sh` (бинарники не коммитятся).
 
 ---
 
@@ -205,10 +232,10 @@ companion/
 │   │   ├── activity/                  ← кольца, журналы, графики
 │   │   ├── dojo_upsell/               ← экран «подключи часы для записи ударов» (§12)
 │   │   └── settings/
-│   ├── core/                          ← FFI bridge к Shared Core
-│   │   ├── core_bindings.dart         ← dart:ffi
-│   │   ├── types.dart                 ← Dart ↔ C-structs
-│   │   └── core_initializer.dart
+│   ├── core/ffi/                      ← FFI bridge к Shared Core
+│   │   ├── core_bindings.dart         ← dart:ffi, разрешение библиотеки
+│   │   ├── core_types.dart            ← Dart ↔ C-structs, статусы
+│   │   └── gochya_core.dart           ← типизированный API
 │   ├── services/
 │   │   ├── api_client.dart            ← dio + retrofit
 │   │   ├── auth_service.dart
@@ -339,40 +366,29 @@ companion/
 
 > ⚠️ **Аудит T3 (критично):** прежний код использовал `DynamicLibrary.open('GOCHYACore.framework/...')` на iOS — это **запрещено** App Store (запрет `dlopen` для сторонних фреймворков; пройдёт debug, упадёт в release/TestFlight/App Review). На iOS нужно **статически линковать** Rust staticlib через Flutter plugin и использовать `DynamicLibrary.process()` (поиск символов в главном бинарнике).
 
+Реализация — `clients/companion/lib/core/ffi/`. Вызывающий код видит только
+типизированный фасад:
+
 ```dart
-// core_bindings.dart
-import 'dart:ffi';
-import 'dart:io';
-import 'package:ffi/ffi.dart';
-
-typedef _QualityScoreNative = Float Function(Pointer<PunchMetricsC>, Pointer<HeartRateEvidenceC>);
-typedef _QualityScore = double Function(Pointer<PunchMetricsC>, Pointer<HeartRateEvidenceC>);
-
-class Core {
-  late final DynamicLibrary _lib;
-  late final _QualityScore _qualityScore;
-
-  Core() {
-    // audit T3: iOS — статическая линковка, символы в главном бинарнике
-    // Android — динамическая загрузка .so
-    _lib = Platform.isIOS
-        ? DynamicLibrary.process()                                  // ← НЕ .open()!
-        : DynamicLibrary.open('libgochya_core.so');
-    _qualityScore = _lib.lookupFunction<_QualityScoreNative, _QualityScore>('gochya_quality_score');
-  }
-
-  double qualityScore(PunchMetrics m, HeartRateEvidence h) {
-    return using((arena) {
-      final mp = arena<PunchMetricsC>()..ref = m.toC(arena);
-      final hp = arena<HeartRateEvidenceC>()..ref = h.toC(arena);
-      return _qualityScore(mp, hp);
-    });
-  }
-}
+final core = GochyaCore.open();          // сверяет gochya_abi_version()
+final predicted = core.advanceNeeds(state, const Duration(minutes: 30));
+final fed = core.applyCare(
+  state,
+  action: CoreCareAction.feed,
+  item: CoreCareItem.apple,
+);
 ```
 
-- Marshalling Dart ↔ C — в `types.dart`.
-- Все формулы — вызовы в ядро, не пересчитываются локально.
+- Разрешение библиотеки — в `core_bindings.dart`: iOS/macOS →
+  `DynamicLibrary.process()`, Android → `DynamicLibrary.open`, хост → явный
+  путь. Fallback с `open` на iOS не предусмотрен намеренно.
+- Marshalling Dart ↔ C и статусы — в `core_types.dart`. Каждая versioned
+  структура штампуется `struct_size` и `schema_version`; неверный заголовок
+  ядро отвергает как `schemaMismatch`.
+- Все формулы — вызовы в ядро, не пересчитываются локально. Не-`Ok` статус
+  становится `CoreException` и не подменяется значением по умолчанию.
+- ABI сверяется при открытии: ядро другой ревизии считало бы другие формулы,
+  чем сервер.
 
 ### Сборка iOS (audit T3)
 1. Rust: `cargo build --release --target aarch64-apple-ios` → `libgochya_core.a` (staticlib).
@@ -381,10 +397,26 @@ class Core {
 4. В итоге символы ядра попадают в главный бинарник приложения → `DynamicLibrary.process()` их находит.
 5. **Не** использовать embedded dynamic framework — это нарушит App Review.
 
+Шаги 2–3 ещё не выполнены: Flutter-плагина с `podspec` в репозитории нет,
+поэтому на iOS мост пока не загрузится. Это остаток среза, требующий macOS.
+
 ### Сборка Android
-1. Rust: `cargo build --release --target aarch64-linux-android` → `libgochya_core.so`.
-2. Поместить в `android/app/src/main/jniLibs/arm64-v8a/libgochya_core.so`.
-3. `DynamicLibrary.open('libgochya_core.so')` загружает в рантайме (разрешено на Android).
+`tools/build-core-android.sh` кросс-компилирует ядро под `arm64-v8a`,
+`armeabi-v7a` и `x86_64` и кладёт `libgochya_core.so` в
+`android/app/src/main/jniLibs/<abi>/`, откуда
+`DynamicLibrary.open('libgochya_core.so')` берёт её в рантайме. Нужны
+`ANDROID_NDK_HOME` и Rust-таргеты Android. Бинарники не коммитятся.
+
+32-битный x86 (`i686-linux-android`, ABI `x86`) не поддерживается. Core
+фиксирует точные размеры всех FFI-структур `const`-ассертами, и эти размеры
+предполагают выравнивание `u64` по 8; в i386 SysV ABI оно равно 4, поэтому
+`GochyaNeedsStateV1` там 52 байта вместо 56 и ядро просто не компилируется.
+Это ограничение самого Core, а не моста; ABI эмуляторный и легаси, CI его
+никогда не собирал.
+
+### Сборка для тестов
+`tools/build-core-host.sh` собирает хостовую cdylib; тесты моста передают путь к
+ней явно и падают с инструкцией, если её нет.
 
 ---
 

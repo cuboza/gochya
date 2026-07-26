@@ -20,6 +20,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -29,6 +33,9 @@ jobs:
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze --no-pub
+      - name: Build Shared Core for the FFI tests
+        working-directory: ${{ github.workspace }}
+        run: bash tools/build-core-host.sh
       - run: flutter test --no-pub
       - name: Build Android debug application
         run: >-
