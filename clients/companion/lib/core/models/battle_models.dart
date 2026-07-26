@@ -79,6 +79,8 @@ class MatchReplay {
     required this.id,
     required this.playerAId,
     required this.playerBId,
+    required this.elementA,
+    required this.elementB,
     required this.mode,
     required this.loadoutRevisionA,
     required this.loadoutRevisionB,
@@ -96,6 +98,12 @@ class MatchReplay {
     if (playerAId == playerBId) {
       throw const FormatException('a match needs two distinct players');
     }
+    final elementA = CreatureElement.fromApi(
+      rangedInt(json, 'elementA', min: 0, max: 16),
+    );
+    final elementB = CreatureElement.fromApi(
+      rangedInt(json, 'elementB', min: 0, max: 16),
+    );
     final result = requiredMap(json, 'result');
     final winner = requiredString(result, 'winner');
     if (winner != 'a' && winner != 'b' && winner != 'draw') {
@@ -109,6 +117,8 @@ class MatchReplay {
       id: requiredString(json, 'id'),
       playerAId: playerAId,
       playerBId: playerBId,
+      elementA: elementA,
+      elementB: elementB,
       mode: requiredString(json, 'mode'),
       loadoutRevisionA: rangedInt(json, 'loadoutRevisionA', min: 0),
       loadoutRevisionB: rangedInt(json, 'loadoutRevisionB', min: 0),
@@ -128,6 +138,10 @@ class MatchReplay {
   final String id;
   final String playerAId;
   final String playerBId;
+
+  /// Species each side fought with, snapshotted by the server at match time.
+  final CreatureElement elementA;
+  final CreatureElement elementB;
   final String mode;
   final int loadoutRevisionA;
   final int loadoutRevisionB;
@@ -142,6 +156,12 @@ class MatchReplay {
 
   String opponentOf(String playerId) =>
       isPlayerA(playerId) ? playerBId : playerAId;
+
+  CreatureElement ownElement(String playerId) =>
+      isPlayerA(playerId) ? elementA : elementB;
+
+  CreatureElement opponentElement(String playerId) =>
+      isPlayerA(playerId) ? elementB : elementA;
 
   MatchOutcome outcomeFor(String playerId) {
     if (playerId != playerAId && playerId != playerBId) {

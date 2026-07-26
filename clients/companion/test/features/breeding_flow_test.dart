@@ -163,7 +163,7 @@ PetSummary _parent(String id, String name, int level) {
   return PetSummary(
     id: id,
     ownerId: 'player-1',
-    genome: const {'element': 'Water'},
+    genome: const {'element': 1},
     name: name,
     stage: 'adult',
     level: level,
@@ -182,7 +182,7 @@ PetSummary _parent(String id, String name, int level) {
 final _baby = PetSummary(
   id: 'pet-1',
   ownerId: 'player-1',
-  genome: const {'element': 'Earth'},
+  genome: const {'element': 2},
   name: 'Моти',
   stage: 'baby',
   level: 4,

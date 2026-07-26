@@ -5,6 +5,7 @@ import '../../app/theme.dart';
 import '../../core/identifiers/uuid_v4.dart';
 import '../../core/models/technique_models.dart';
 import '../../core/network/gochya_api_client.dart';
+import 'technique_card.dart';
 import 'technique_repository.dart';
 
 /// Builds the five-card loadout the server uses for every match. The client
@@ -384,72 +385,13 @@ class _TechniqueCardTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isSelected = slot >= 0;
     final canSelect = isSelected || !selectionFull;
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: canSelect ? onToggle : null,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: card.rarity.color.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  isSelected ? '${slot + 1}' : card.type.label.substring(0, 1),
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: card.rarity.color,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      card.label,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${card.rarity.label} · урон '
-                      '${card.baseDamage.toStringAsFixed(1)} · '
-                      'стамина ${card.staminaCost}',
-                      style: const TextStyle(
-                        color: GochyaColors.muted,
-                        fontSize: 12,
-                      ),
-                    ),
-                    if (card.effect != TechniqueEffect.none) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        '${card.effect.label} '
-                        '${card.effectValue.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          color: GochyaColors.secondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              Checkbox(
-                value: isSelected,
-                onChanged: canSelect ? (_) => onToggle() : null,
-              ),
-            ],
-          ),
-        ),
+    return TechniqueCardFace(
+      card: card,
+      slot: slot,
+      onTap: canSelect ? onToggle : null,
+      trailing: Checkbox(
+        value: isSelected,
+        onChanged: canSelect ? (_) => onToggle() : null,
       ),
     );
   }
@@ -522,15 +464,4 @@ String _dateLabel(DateTime value) {
   final hour = local.hour.toString().padLeft(2, '0');
   final minute = local.minute.toString().padLeft(2, '0');
   return '$day.$month в $hour:$minute';
-}
-
-extension TechniqueRarityStyle on TechniqueRarity {
-  Color get color => switch (this) {
-    TechniqueRarity.common => GochyaColors.muted,
-    TechniqueRarity.uncommon => GochyaColors.hygiene,
-    TechniqueRarity.rare => GochyaColors.energy,
-    TechniqueRarity.epic => GochyaColors.primary,
-    TechniqueRarity.legendary => GochyaColors.secondary,
-    TechniqueRarity.mythic => GochyaColors.warning,
-  };
 }

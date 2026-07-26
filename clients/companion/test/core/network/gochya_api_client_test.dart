@@ -310,7 +310,7 @@ void main() {
             'nodes': [
               {
                 'id': 'pet-1',
-                'genome': {'element': 'Earth'},
+                'genome': {'element': 2},
                 'name': 'Моти',
                 'stage': 'baby',
                 'level': 4,
@@ -322,7 +322,7 @@ void main() {
               },
               {
                 'id': 'pet-a',
-                'genome': {'element': 'Water'},
+                'genome': {'element': 1},
                 'stage': 'adult',
                 'level': 18,
                 'generation': 0,
@@ -762,6 +762,11 @@ void main() {
       expect(replay.outcomeFor('player-2'), MatchOutcome.loss);
       expect(replay.opponentOf('player-1'), 'player-2');
       expect(replay.rounds, hasLength(2));
+      // Both players read the same replay and each sees the other's species.
+      expect(replay.ownElement('player-1'), CreatureElement.earth);
+      expect(replay.opponentElement('player-1'), CreatureElement.fire);
+      expect(replay.ownElement('player-2'), CreatureElement.fire);
+      expect(replay.opponentElement('player-2'), CreatureElement.earth);
     });
 
     test('confirms a match without a body and reads its reward', () async {
@@ -926,7 +931,7 @@ final _profileJson = <String, dynamic>{
 final _petJson = <String, dynamic>{
   'id': 'pet-1',
   'ownerId': 'player-1',
-  'genome': {'element': 'Earth'},
+  'genome': {'element': 2},
   'name': 'Моти',
   'stage': 'baby',
   'level': 4,
@@ -975,6 +980,8 @@ final _matchJson = <String, dynamic>{
   'playerAId': 'player-1',
   'playerBId': 'player-2',
   'mode': 'casual',
+  'elementA': 2,
+  'elementB': 0,
   'loadoutRevisionA': 7,
   'loadoutRevisionB': 4,
   'result': {

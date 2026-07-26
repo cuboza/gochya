@@ -7,6 +7,10 @@ void main() {
   testWidgets('demo mode opens a populated signed-in player flow', (
     tester,
   ) async {
+    // The pet portrait takes a full stage, so the home column is taller than a
+    // default test viewport.
+    await tester.binding.setSurfaceSize(const Size(1000, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(const DemoPlayerScope(child: GochyaApp()));
     await tester.pumpAndSettle();
 

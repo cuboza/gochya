@@ -148,13 +148,15 @@ func (s *PostgresStore) Match(
 	matchID string,
 ) (MatchResponse, error) {
 	var response MatchResponse
-	var resultJSON []byte
+	var resultJSON, loadoutAJSON, loadoutBJSON []byte
 	err := s.pool.QueryRow(ctx, `SELECT id::text,player_a::text,player_b::text,
-		mode,loadout_revision_a,loadout_revision_b,result,created_at
+		mode,loadout_revision_a,loadout_revision_b,loadout_a,loadout_b,
+		result,created_at
 		FROM matches WHERE id=$2 AND (player_a=$1 OR player_b=$1)`,
 		playerID, matchID).Scan(&response.ID, &response.PlayerAID,
 		&response.PlayerBID, &response.Mode, &response.LoadoutRevisionA,
-		&response.LoadoutRevisionB, &resultJSON, &response.CreatedAt)
+		&response.LoadoutRevisionB, &loadoutAJSON, &loadoutBJSON,
+		&resultJSON, &response.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MatchResponse{}, ErrMatchNotFound
 	}
@@ -164,8 +166,27 @@ func (s *PostgresStore) Match(
 	if err := json.Unmarshal(resultJSON, &response.Result); err != nil {
 		return MatchResponse{}, fmt.Errorf("decode match result: %w", err)
 	}
+	response.ElementA, err = snapshotElement(loadoutAJSON)
+	if err != nil {
+		return MatchResponse{}, err
+	}
+	response.ElementB, err = snapshotElement(loadoutBJSON)
+	if err != nil {
+		return MatchResponse{}, err
+	}
 	response.CreatedAt = response.CreatedAt.UTC()
 	return response, nil
+}
+
+// snapshotElement reads the species out of a stored loadout snapshot. The
+// snapshot is written when the match is created, so it stays correct even if
+// the pet is later bred into another element.
+func snapshotElement(raw []byte) (uint8, error) {
+	var stored snapshot
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return 0, fmt.Errorf("decode match loadout snapshot: %w", err)
+	}
+	return stored.Combat.Element, nil
 }
 
 func (s *PostgresStore) History(

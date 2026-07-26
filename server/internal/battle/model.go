@@ -34,14 +34,18 @@ type Result struct {
 }
 
 type MatchResponse struct {
-	ID               string    `json:"id"`
-	PlayerAID        string    `json:"playerAId"`
-	PlayerBID        string    `json:"playerBId"`
-	Mode             string    `json:"mode"`
-	LoadoutRevisionA uint64    `json:"loadoutRevisionA"`
-	LoadoutRevisionB uint64    `json:"loadoutRevisionB"`
-	Result           Result    `json:"result"`
-	CreatedAt        time.Time `json:"createdAt"`
+	ID               string `json:"id"`
+	PlayerAID        string `json:"playerAId"`
+	PlayerBID        string `json:"playerBId"`
+	Mode             string `json:"mode"`
+	LoadoutRevisionA uint64 `json:"loadoutRevisionA"`
+	LoadoutRevisionB uint64 `json:"loadoutRevisionB"`
+	// Species each side fought with, read from the immutable loadout snapshot
+	// so a replay shows the creatures the server actually simulated.
+	ElementA  uint8     `json:"elementA"`
+	ElementB  uint8     `json:"elementB"`
+	Result    Result    `json:"result"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type MatchSummary struct {

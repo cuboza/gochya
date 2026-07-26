@@ -168,7 +168,7 @@ class _RecordingCareRepository implements CareRepository {
 final _pet = PetSummary(
   id: '33333333-3333-4333-8333-333333333333',
   ownerId: 'player-1',
-  genome: const {'element': 'Earth'},
+  genome: const {'element': 2},
   name: 'Моти',
   stage: 'baby',
   level: 4,

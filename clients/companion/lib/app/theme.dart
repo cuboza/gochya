@@ -16,6 +16,18 @@ abstract final class GochyaColors {
   static const mood = Color(0xFFFF8FB1);
 }
 
+/// Rarity frame palette from `ART_BIBLE.md` §3.3. It is a scale of its own:
+/// none of these colours may double as an element or a UI-state colour, and
+/// Epic is frame-only because it does not reach the 4.5:1 text threshold.
+abstract final class GochyaRarityColors {
+  static const common = Color(0xFF8A8FA3);
+  static const uncommon = Color(0xFF4CAF6E);
+  static const rare = Color(0xFF3D8BFD);
+  static const epic = Color(0xFFA855F7);
+  static const legendary = Color(0xFFFF9F1C);
+  static const mythic = Color(0xFFF5F0FF);
+}
+
 ThemeData buildGochyaTheme() {
   final colorScheme = ColorScheme.fromSeed(
     seedColor: GochyaColors.primary,

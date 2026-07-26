@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gochya_companion/app/app.dart';
@@ -14,6 +15,10 @@ void main() {
     tester,
   ) async {
     final flow = _FlowState();
+    // The hatched pet renders a full-stage portrait, so the home column needs
+    // more height than a default test viewport.
+    await tester.binding.setSurfaceSize(const Size(1000, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       ProviderScope(
         overrides: [

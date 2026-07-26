@@ -69,6 +69,11 @@ func TestPostgresCasualMatchIsAtomicAndIdempotent(t *testing.T) {
 		match.LoadoutRevisionA != 1 || match.LoadoutRevisionB != 1 {
 		t.Fatalf("match = %#v", match)
 	}
+	// The replay must name both species so a client can draw the opponent
+	// instead of an anonymous shape: seeded pets are Fire (0) and Earth (2).
+	if match.ElementA != 0 || match.ElementB != 2 {
+		t.Fatalf("match elements = %d, %d", match.ElementA, match.ElementB)
+	}
 	if _, err := store.Match(ctx, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", commit.MatchID); err != ErrMatchNotFound {
 		t.Fatalf("outsider error = %v", err)
 	}

@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme.dart';
 import '../../core/models/activity_models.dart';
 import '../../core/network/gochya_api_client.dart';
-import '../techniques/loadout_screen.dart';
+import '../techniques/technique_content.dart';
 import '../techniques/technique_repository.dart';
 import 'activity_repository.dart';
 
@@ -206,7 +206,7 @@ class _TodayCard extends StatelessWidget {
                 children: [
                   Icon(
                     Icons.auto_awesome_rounded,
-                    color: reward!.card.rarity.color,
+                    color: reward!.card.rarity.frameColor,
                   ),
                   const SizedBox(width: 8),
                   Expanded(

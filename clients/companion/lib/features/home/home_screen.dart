@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import '../../core/models/care_models.dart';
 import '../../core/models/onboarding_models.dart';
 import '../../core/models/profile_models.dart';
 import '../../core/network/gochya_api_client.dart';
 import '../activity/activity_screen.dart';
 import '../care/care_actions.dart';
+import '../creatures/creature_art.dart';
+import '../creatures/creature_rig.dart';
+import '../creatures/rigged_creature.dart';
 import '../onboarding/onboarding_repository.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../session/session_controller.dart';
@@ -31,6 +35,10 @@ class HomeScreen extends ConsumerWidget {
         ),
       ),
       body: snapshot.when(
+        // A care action reloads the profile. Dropping back to a spinner would
+        // blank the pet mid-reaction, so previously loaded data stays on
+        // screen while the reload runs.
+        skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => _HomeError(
           error: error,
@@ -63,7 +71,7 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _HomeContent extends StatelessWidget {
+class _HomeContent extends StatefulWidget {
   const _HomeContent({
     required this.accessToken,
     required this.snapshot,
@@ -77,7 +85,62 @@ class _HomeContent extends StatelessWidget {
   final ValueChanged<PetSummary> onOpenLineage;
 
   @override
+  State<_HomeContent> createState() => _HomeContentState();
+}
+
+class _HomeContentState extends State<_HomeContent>
+    with SingleTickerProviderStateMixin {
+  /// Reaction lengths come from `ART_BIBLE.md` §9.2.
+  static const _durations = <CareOperation, Duration>{
+    CareOperation.feed: Duration(milliseconds: 600),
+    CareOperation.clean: Duration(milliseconds: 900),
+    CareOperation.play: Duration(milliseconds: 800),
+  };
+
+  // Built in initState, not lazily: a lazy field would be constructed inside
+  // dispose() on a screen that never showed a pet.
+  late final AnimationController _reaction;
+  CreatureAction? _action;
+
+  @override
+  void initState() {
+    super.initState();
+    _reaction = AnimationController(vsync: this)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed && mounted) {
+          setState(() => _action = null);
+        }
+      });
+  }
+
+  @override
+  void dispose() {
+    _reaction.dispose();
+    super.dispose();
+  }
+
+  void _playReaction(CareOperation operation) {
+    final duration = _durations[operation];
+    final action = switch (operation) {
+      CareOperation.feed => CreatureAction.eat,
+      CareOperation.clean => CreatureAction.clean,
+      CareOperation.play => CreatureAction.play,
+      // Sleep is a lasting state, read from the pet, not a one-shot reaction.
+      CareOperation.sleep => null,
+    };
+    if (action == null || duration == null) {
+      return;
+    }
+    setState(() => _action = action);
+    _reaction
+      ..duration = duration
+      ..forward(from: 0);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final snapshot = widget.snapshot;
+    final accessToken = widget.accessToken;
     final pet = snapshot.activePet;
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -102,7 +165,7 @@ class _HomeContent extends StatelessWidget {
         if (pet == null)
           _NoPetState(accessToken: accessToken)
         else ...[
-          _PetHero(pet: pet),
+          _PetHero(pet: pet, reaction: _action, reactionProgress: _reaction),
           const SizedBox(height: 16),
           _NeedsCard(needs: pet.needs),
           const SizedBox(height: 16),
@@ -110,7 +173,8 @@ class _HomeContent extends StatelessWidget {
             accountId: snapshot.profile.id,
             accessToken: accessToken,
             pet: pet,
-            onSnapshotChanged: onCareChanged,
+            onSnapshotChanged: widget.onCareChanged,
+            onCareApplied: _playReaction,
           ),
           const SizedBox(height: 16),
           Card(
@@ -131,7 +195,7 @@ class _HomeContent extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   FilledButton.tonalIcon(
-                    onPressed: () => onOpenLineage(pet),
+                    onPressed: () => widget.onOpenLineage(pet),
                     icon: const Icon(Icons.account_tree_outlined),
                     label: const Text('Открыть родословную'),
                   ),
@@ -189,76 +253,182 @@ class _ActivityEntryCard extends StatelessWidget {
 }
 
 class _PetHero extends StatelessWidget {
-  const _PetHero({required this.pet});
+  const _PetHero({
+    required this.pet,
+    required this.reaction,
+    required this.reactionProgress,
+  });
 
   final PetSummary pet;
 
+  /// One-shot care reaction, or `null` when the pet is just idling.
+  final CreatureAction? reaction;
+  final Animation<double> reactionProgress;
+
   @override
   Widget build(BuildContext context) {
+    final element = creatureElementOf(pet.genome);
+    final tint = element?.tint ?? GochyaColors.primary;
+    final sleepingUntil = pet.sleepingUntil;
+    final isSleeping =
+        sleepingUntil != null && sleepingUntil.isAfter(DateTime.now());
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            Container(
-              width: 88,
-              height: 88,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [GochyaColors.primary, Color(0xFF5B8DEF)],
-                ),
-                borderRadius: BorderRadius.circular(28),
-              ),
-              child: const Icon(Icons.pets_rounded, size: 48),
-            ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    pet.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${_stageLabel(pet.stage)} · уровень ${pet.level}',
-                    style: const TextStyle(color: GochyaColors.muted),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Поколение ${pet.generation}',
-                    style: const TextStyle(color: GochyaColors.muted),
-                  ),
-                  if (pet.isWeak) ...[
-                    const SizedBox(height: 8),
-                    const Row(
-                      children: [
-                        Icon(
-                          Icons.warning_amber_rounded,
-                          size: 18,
-                          color: GochyaColors.warning,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Нужна забота',
-                          style: TextStyle(color: GochyaColors.warning),
-                        ),
-                      ],
-                    ),
-                  ],
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          // The pet is the first thing the player meets, so it gets a full
+          // stage instead of an avatar-sized thumbnail.
+          Container(
+            height: 240,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  tint.withValues(alpha: 0.32),
+                  GochyaColors.backgroundMid,
                 ],
               ),
             ),
-          ],
-        ),
+            child: Stack(
+              alignment: Alignment.bottomCenter,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
+                  child: Semantics(
+                    label: element == null
+                        ? pet.label
+                        : '${pet.label}, ${element.label}',
+                    child: Center(
+                      child: AnimatedBuilder(
+                        animation: reactionProgress,
+                        builder: (context, _) => RiggedCreature(
+                          element: element,
+                          width: 260,
+                          // A sleeping pet keeps sleeping: a lasting state
+                          // outranks a one-shot reaction.
+                          action: isSleeping
+                              ? CreatureAction.sleeping
+                              : reaction ?? CreatureAction.idle,
+                          actionProgress: reactionProgress.value,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (reaction == CreatureAction.eat)
+                  _FlyingTreat(progress: reactionProgress),
+                if (element != null)
+                  Positioned(
+                    top: 12,
+                    right: 14,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: GochyaColors.background.withValues(alpha: 0.62),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        element.label,
+                        style: TextStyle(
+                          color: tint,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  pet.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_stageLabel(pet.stage)} · уровень ${pet.level}',
+                  style: const TextStyle(color: GochyaColors.muted),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Поколение ${pet.generation}',
+                  style: const TextStyle(color: GochyaColors.muted),
+                ),
+                if (pet.isWeak) ...[
+                  const SizedBox(height: 8),
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        size: 18,
+                        color: GochyaColors.warning,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Нужна забота',
+                        style: TextStyle(color: GochyaColors.warning),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+/// The apple that flies into the pet's mouth while it eats
+/// (`ART_BIBLE.md` §9.2).
+class _FlyingTreat extends StatelessWidget {
+  const _FlyingTreat({required this.progress});
+
+  final Animation<double> progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: progress,
+      builder: (context, _) {
+        final t = Curves.easeInCubic.transform(
+          (progress.value / 0.55).clamp(0.0, 1.0),
+        );
+        final fade = (1 - ((progress.value - 0.5) / 0.3)).clamp(0.0, 1.0);
+        return Align(
+          alignment: Alignment.lerp(
+            const Alignment(-0.85, 0.7),
+            const Alignment(0.1, -0.05),
+            t,
+          )!,
+          child: Opacity(
+            opacity: fade,
+            child: Transform.rotate(
+              angle: t * 2.4,
+              child: const Icon(
+                Icons.apple_rounded,
+                size: 30,
+                color: GochyaColors.hunger,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

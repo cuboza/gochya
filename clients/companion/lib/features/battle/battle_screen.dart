@@ -8,8 +8,10 @@ import '../../core/models/technique_models.dart';
 import '../../core/network/gochya_api_client.dart';
 import '../home/profile_repository.dart';
 import '../techniques/loadout_screen.dart';
+import '../techniques/technique_content.dart';
 import '../techniques/technique_repository.dart';
 import 'battle_repository.dart';
+import 'battle_stage.dart';
 
 /// Casual PvP. The server queues, simulates through Rust Core and confirms;
 /// the phone only submits intent and renders the authoritative replay.
@@ -74,6 +76,8 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
               _ReplayCard(
                 replay: replay,
                 playerId: home.value?.profile.id,
+                ownCards: loadout.value?.equippedCards ?? const [],
+                ownLoadoutRevision: loadout.value?.loadout?.revision,
                 confirmation: _confirmation,
                 isConfirming: _isConfirming,
                 onConfirm: _confirm,
@@ -251,7 +255,7 @@ class _ReadinessCard extends StatelessWidget {
                             ? Icons.star_rounded
                             : Icons.circle,
                         size: 16,
-                        color: equipped[index].rarity.color,
+                        color: equipped[index].rarity.frameColor,
                       ),
                       label: Text(equipped[index].type.label),
                     ),
@@ -338,6 +342,8 @@ class _ReplayCard extends StatelessWidget {
   const _ReplayCard({
     required this.replay,
     required this.playerId,
+    required this.ownCards,
+    required this.ownLoadoutRevision,
     required this.confirmation,
     required this.isConfirming,
     required this.onConfirm,
@@ -345,6 +351,8 @@ class _ReplayCard extends StatelessWidget {
 
   final MatchReplay replay;
   final String? playerId;
+  final List<TechniqueCardSummary> ownCards;
+  final int? ownLoadoutRevision;
   final MatchConfirmation? confirmation;
   final bool isConfirming;
   final Future<void> Function() onConfirm;
@@ -394,12 +402,27 @@ class _ReplayCard extends StatelessWidget {
                 style: const TextStyle(color: GochyaColors.muted),
               ),
             const SizedBox(height: 14),
-            for (var index = 0; index < replay.rounds.length; index++)
-              _RoundRow(
-                index: index,
-                round: replay.rounds[index],
-                isPlayerA: playerId == null || replay.isPlayerA(playerId!),
-              ),
+            BattleStage(
+              key: ValueKey(replay.id),
+              replay: replay,
+              playerId: playerId,
+              ownCards: ownCards,
+              ownLoadoutRevision: ownLoadoutRevision,
+            ),
+            const SizedBox(height: 8),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: const Text('Журнал раундов'),
+              children: [
+                for (var index = 0; index < replay.rounds.length; index++)
+                  _RoundRow(
+                    index: index,
+                    round: replay.rounds[index],
+                    isPlayerA: playerId == null || replay.isPlayerA(playerId!),
+                  ),
+              ],
+            ),
             const SizedBox(height: 16),
             if (reward == null)
               FilledButton.icon(
@@ -487,7 +510,7 @@ class _RewardSummary extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              Icon(Icons.auto_awesome_rounded, color: card.rarity.color),
+              Icon(Icons.auto_awesome_rounded, color: card.rarity.frameColor),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(

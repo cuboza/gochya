@@ -78,6 +78,8 @@ class _RetryingBattleApi extends GochyaApiClient {
       id: matchId,
       playerAId: 'player-1',
       playerBId: 'player-2',
+      elementA: CreatureElement.earth,
+      elementB: CreatureElement.fire,
       mode: 'casual',
       loadoutRevisionA: 7,
       loadoutRevisionB: 4,

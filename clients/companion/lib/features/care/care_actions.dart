@@ -14,6 +14,7 @@ class CareActions extends ConsumerStatefulWidget {
     required this.accessToken,
     required this.pet,
     required this.onSnapshotChanged,
+    this.onCareApplied,
     super.key,
   });
 
@@ -21,6 +22,10 @@ class CareActions extends ConsumerStatefulWidget {
   final String accessToken;
   final PetSummary pet;
   final VoidCallback onSnapshotChanged;
+
+  /// Fires only when the server confirms the command, so the pet never reacts
+  /// to an action the backend rejected or merely queued.
+  final ValueChanged<CareOperation>? onCareApplied;
 
   @override
   ConsumerState<CareActions> createState() => _CareActionsState();
@@ -227,6 +232,9 @@ class _CareActionsState extends ConsumerState<CareActions> {
         _isSubmitting = false;
         _pendingCount = result.pendingCount;
       });
+      if (commandResult.status.isApplied) {
+        widget.onCareApplied?.call(operation);
+      }
       final message = commandResult.status.isApplied
           ? _successMessage(operation, commandResult.status)
           : _rejectionMessage(commandResult);

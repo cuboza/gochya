@@ -25,7 +25,7 @@ void main() {
     );
 
     for (var index = 0; index < 5; index++) {
-      await _tap(tester, find.text(_cards[index].label));
+      await _tap(tester, find.text(_cards[index].type.label));
     }
 
     await _tap(tester, find.widgetWithText(ChoiceChip, 'Апперкот'));
@@ -48,7 +48,7 @@ void main() {
     await _pumpLoadout(tester, repository);
 
     for (final card in _cards) {
-      await _tap(tester, find.text(card.label));
+      await _tap(tester, find.text(card.type.label));
     }
 
     expect(find.text('Экипировать пять карт'), findsOneWidget);
@@ -72,7 +72,7 @@ void main() {
     await _pumpLoadout(tester, repository);
 
     for (var index = 0; index < 5; index++) {
-      await _tap(tester, find.text(_cards[index].label));
+      await _tap(tester, find.text(_cards[index].type.label));
     }
 
     await _tap(tester, find.text('Экипировать пять карт'));

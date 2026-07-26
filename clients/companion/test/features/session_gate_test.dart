@@ -176,6 +176,10 @@ void main() {
     tester,
   ) async {
     final store = _MemorySessionStore(tokens: _tokens);
+    // The pet portrait takes a full stage, so the home column is taller than a
+    // default test viewport.
+    await tester.binding.setSurfaceSize(const Size(1000, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -453,7 +457,7 @@ class _FakeRepository implements ProfileRepository {
       nodes: [
         LineageNode(
           id: 'pet-1',
-          genome: {'element': 'Earth'},
+          genome: {'element': 2},
           name: 'Моти',
           stage: 'baby',
           level: 4,
@@ -465,7 +469,7 @@ class _FakeRepository implements ProfileRepository {
         ),
         LineageNode(
           id: 'pet-a',
-          genome: {'element': 'Water'},
+          genome: {'element': 1},
           stage: 'adult',
           level: 18,
           generation: 0,
@@ -507,7 +511,7 @@ final _profile = PlayerProfile(
 final _pet = PetSummary(
   id: 'pet-1',
   ownerId: 'player-1',
-  genome: const {'element': 'Earth'},
+  genome: const {'element': 2},
   name: 'Моти',
   stage: 'baby',
   level: 4,

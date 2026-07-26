@@ -70,7 +70,7 @@ class _DemoPlayerState {
     : pet = PetSummary(
         id: 'demo-pet-1',
         ownerId: 'demo-player-1',
-        genome: const {'element': 'Earth'},
+        genome: const {'element': 2},
         name: 'Моти',
         stage: 'baby',
         level: 4,
@@ -265,7 +265,7 @@ class _DemoProfileRepository implements ProfileRepository {
       nodes: [
         LineageNode(
           id: 'demo-pet-1',
-          genome: {'element': 'Earth'},
+          genome: {'element': 2},
           name: 'Моти',
           stage: 'baby',
           level: 4,
@@ -277,7 +277,7 @@ class _DemoProfileRepository implements ProfileRepository {
         ),
         LineageNode(
           id: 'demo-pet-a',
-          genome: {'element': 'Water'},
+          genome: {'element': 1},
           name: 'Аква',
           stage: 'adult',
           level: 18,
@@ -287,7 +287,7 @@ class _DemoProfileRepository implements ProfileRepository {
         ),
         LineageNode(
           id: 'demo-pet-b',
-          genome: {'element': 'Fire'},
+          genome: {'element': 0},
           name: 'Искра',
           stage: 'adult',
           level: 17,
@@ -435,6 +435,8 @@ class _DemoBattleRepository implements BattleRepository {
       id: 'demo-match-${state.matchHistory.length + 1}',
       playerAId: _DemoPlayerState.profile.id,
       playerBId: 'demo-rival-7',
+      elementA: CreatureElement.earth,
+      elementB: CreatureElement.water,
       mode: 'casual',
       loadoutRevisionA: state.loadout!.revision,
       loadoutRevisionB: 4,
@@ -547,7 +549,7 @@ class _DemoBreedingRepository implements BreedingRepository {
       id: 'demo-egg-${state.eggs.length + 1}',
       ownerId: _DemoPlayerState.profile.id,
       origin: 'breeding',
-      genome: const {'element': 'Steam'},
+      genome: const {'element': 7},
       parentAId: parentAId,
       parentBId: parentBId,
       incubateUntil: now.add(const Duration(hours: 6)),
@@ -618,7 +620,7 @@ PetSummary _demoParent(String id, String name, int level) {
   return PetSummary(
     id: id,
     ownerId: 'demo-player-1',
-    genome: const {'element': 'Water'},
+    genome: const {'element': 1},
     name: name,
     stage: 'adult',
     level: level,
@@ -639,12 +641,13 @@ TechniqueCardSummary _demoCard(
   TechniqueType type,
   TechniqueRarity rarity,
   double baseDamage,
+  CreatureElement element,
 ) {
   return TechniqueCardSummary(
     id: id,
     ownerId: 'demo-player-1',
     type: type,
-    element: CreatureElement.earth,
+    element: element,
     rarity: rarity,
     baseDamage: baseDamage,
     speed: 52,
@@ -658,12 +661,48 @@ TechniqueCardSummary _demoCard(
 }
 
 final _demoCards = List<TechniqueCardSummary>.unmodifiable([
-  _demoCard('demo-card-1', TechniqueType.jab, TechniqueRarity.common, 12),
-  _demoCard('demo-card-2', TechniqueType.hook, TechniqueRarity.uncommon, 18),
-  _demoCard('demo-card-3', TechniqueType.uppercut, TechniqueRarity.rare, 24),
-  _demoCard('demo-card-4', TechniqueType.cross, TechniqueRarity.common, 15),
-  _demoCard('demo-card-5', TechniqueType.kick, TechniqueRarity.uncommon, 20),
-  _demoCard('demo-card-6', TechniqueType.elbow, TechniqueRarity.epic, 29),
+  _demoCard(
+    'demo-card-1',
+    TechniqueType.jab,
+    TechniqueRarity.common,
+    12,
+    CreatureElement.earth,
+  ),
+  _demoCard(
+    'demo-card-2',
+    TechniqueType.hook,
+    TechniqueRarity.uncommon,
+    18,
+    CreatureElement.fire,
+  ),
+  _demoCard(
+    'demo-card-3',
+    TechniqueType.uppercut,
+    TechniqueRarity.rare,
+    24,
+    CreatureElement.water,
+  ),
+  _demoCard(
+    'demo-card-4',
+    TechniqueType.cross,
+    TechniqueRarity.rare,
+    15,
+    CreatureElement.steam,
+  ),
+  _demoCard(
+    'demo-card-5',
+    TechniqueType.kick,
+    TechniqueRarity.legendary,
+    20,
+    CreatureElement.fire,
+  ),
+  _demoCard(
+    'demo-card-6',
+    TechniqueType.elbow,
+    TechniqueRarity.mythic,
+    29,
+    CreatureElement.water,
+  ),
 ]);
 
 DailyActivity _demoDay(String date, int steps, int vitality) {
