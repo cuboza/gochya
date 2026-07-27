@@ -60,30 +60,39 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],
-              for (final category in ShopCategory.values) ...[
+              if (snapshot.catalog.items.isEmpty) ...[
                 const SizedBox(height: 24),
-                Text(
-                  category.label,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 12),
-                for (final item in snapshot.catalog.items.where(
+                const _EmptyCatalogCard(),
+              ],
+              // A category heading with nothing under it reads as a broken
+              // screen, so an empty section is skipped rather than titled.
+              for (final category in ShopCategory.values)
+                if (snapshot.catalog.items.any(
                   (item) => item.category == category,
                 )) ...[
-                  _ShopItemCard(
-                    item: item,
-                    ownedQuantity: snapshot.inventory.quantityOf(item.id),
-                    koins: snapshot.inventory.koins,
-                    isPurchasing: _purchasingItem == item.id,
-                    purchaseDisabled:
-                        _purchasingItem != null || _purchaseOutcomeUncertain,
-                    onPurchase: () => _purchase(item),
+                  const SizedBox(height: 24),
+                  Text(
+                    category.label,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 12),
+                  for (final item in snapshot.catalog.items.where(
+                    (item) => item.category == category,
+                  )) ...[
+                    _ShopItemCard(
+                      item: item,
+                      ownedQuantity: snapshot.inventory.quantityOf(item.id),
+                      koins: snapshot.inventory.koins,
+                      isPurchasing: _purchasingItem == item.id,
+                      purchaseDisabled:
+                          _purchasingItem != null || _purchaseOutcomeUncertain,
+                      onPurchase: () => _purchase(item),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                 ],
-              ],
             ],
           ),
         ),
@@ -342,6 +351,43 @@ class _UncertainPurchaseCard extends StatelessWidget {
               onPressed: onRefresh,
               icon: const Icon(Icons.refresh_rounded),
               label: const Text('Обновить магазин'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when the server returns a catalog with nothing in it. That is not an
+/// error — the request succeeded — so it must not look like one.
+class _EmptyCatalogCard extends StatelessWidget {
+  const _EmptyCatalogCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            const Icon(
+              Icons.storefront_outlined,
+              size: 40,
+              color: GochyaColors.muted,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Прилавок пуст',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Сервер пока не прислал ни одного товара. Потяните экран, чтобы '
+              'проверить ещё раз.',
+              textAlign: TextAlign.center,
             ),
           ],
         ),

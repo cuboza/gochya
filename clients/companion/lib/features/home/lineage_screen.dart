@@ -45,6 +45,17 @@ class _LineageContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A first-generation pet has no ancestors, and the depth loop below would
+    // then render an empty screen. `UX_UI.md` §8 asks every screen for a real
+    // empty state, so say what is going on instead of showing nothing.
+    final hasAncestors = tree.nodes.any((node) => node.ancestorDepth > 0);
+    if (!hasAncestors) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+        children: const [_NoAncestorsCard()],
+      );
+    }
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
@@ -90,6 +101,42 @@ class _LineageContent extends StatelessWidget {
           ],
         ],
       ],
+    );
+  }
+}
+
+class _NoAncestorsCard extends StatelessWidget {
+  const _NoAncestorsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            const Icon(
+              Icons.account_tree_outlined,
+              size: 40,
+              color: GochyaColors.muted,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Род начинается с него',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Это питомец первого поколения — предков у него ещё нет. '
+              'Скрести двух взрослых питомцев на вкладке «Бридинг», и здесь '
+              'появится дерево.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
