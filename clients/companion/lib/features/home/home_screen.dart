@@ -360,7 +360,7 @@ class _PetHero extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${_stageLabel(pet.stage)} · уровень ${pet.level}',
+                  '${pet.stageLabel} · уровень ${pet.level}',
                   style: const TextStyle(color: GochyaColors.muted),
                 ),
                 const SizedBox(height: 4),
@@ -783,16 +783,6 @@ class _HomeError extends StatelessWidget {
       ),
     );
   }
-}
-
-String _stageLabel(String stage) {
-  return switch (stage.toLowerCase()) {
-    'egg' => 'Яйцо',
-    'baby' => 'Малыш',
-    'teen' => 'Подросток',
-    'adult' => 'Взрослый',
-    _ => stage,
-  };
 }
 
 String _remainingLabel(Duration value) {

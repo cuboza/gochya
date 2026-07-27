@@ -16,6 +16,45 @@ abstract final class GochyaColors {
   static const mood = Color(0xFFFF8FB1);
 }
 
+/// Element palette from `ART_BIBLE.md` §3.2.
+///
+/// A scale of its own. Before this existed the element tints were borrowed from
+/// the needs palette — Water took `energy`, Earth took `hygiene`, Magma took
+/// `warning` — which put back exactly the collision the §5 audit removed, only
+/// from the other direction: an Earth pet was tinted mint and sat directly
+/// above a mint hygiene bar.
+///
+/// Three elements are lightened for UI use because their canonical colour does
+/// not clear the 3:1 non-text threshold on `#1A1B2E`: Mud (1.96), Eclipse
+/// (1.11) and Inferno (1.69). The hue is preserved exactly, so the creature
+/// still reads as the same species; only the UI tint is raised. All three are
+/// phase-2/alpha elements.
+abstract final class GochyaElementColors {
+  static const fire = Color(0xFFFF6B35);
+  static const water = Color(0xFF4ECDC4);
+  static const earth = Color(0xFFC9A66B);
+  static const steam = Color(0xFFE8E8E8);
+  static const air = Color(0xFFB8E1FF);
+  static const light = Color(0xFFFFE66D);
+  static const dark = Color(0xFF9B87C4);
+  static const arcane = Color(0xFFC77DFF);
+  static const magma = Color(0xFFFF4500);
+  static const storm = Color(0xFF5C7AEA);
+  static const smoke = Color(0xFF9E9E9E);
+  static const sand = Color(0xFFE6D5A8);
+  static const prism = Color(0xFFF0F8FF);
+  static const crystal = Color(0xFFB8E6D2);
+
+  /// Canonical `#6B4226` — too dark for the UI at 1.96:1.
+  static const mud = Color(0xFF9E6138);
+
+  /// Canonical `#2D1B4E` — 1.11:1, effectively invisible on the dark ground.
+  static const eclipse = Color(0xFF815BC6);
+
+  /// Canonical `#8B0000` — 1.69:1.
+  static const inferno = Color(0xFFE20000);
+}
+
 /// Activity ring ramp from `ART_BIBLE.md` §3.4.
 ///
 /// Deliberately one hue at three lightness steps rather than three categorical

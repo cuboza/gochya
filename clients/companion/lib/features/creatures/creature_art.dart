@@ -43,20 +43,27 @@ CreatureElement? creatureElementOf(JsonMap genome) {
 }
 
 extension CreatureElementStyle on CreatureElement {
+  /// Every element carries its own colour from `ART_BIBLE.md` §3.2. None of
+  /// them may double as a need, rarity or UI-state colour — see the note on
+  /// [GochyaElementColors] for what happened when they did.
   Color get tint => switch (this) {
-    CreatureElement.fire || CreatureElement.inferno => GochyaColors.hunger,
-    CreatureElement.water || CreatureElement.storm => GochyaColors.energy,
-    CreatureElement.earth ||
-    CreatureElement.mud ||
-    CreatureElement.sand => GochyaColors.hygiene,
-    CreatureElement.steam || CreatureElement.smoke => GochyaColors.muted,
-    CreatureElement.magma => GochyaColors.warning,
-    CreatureElement.light ||
-    CreatureElement.prism ||
-    CreatureElement.crystal => GochyaColors.secondary,
-    CreatureElement.dark ||
-    CreatureElement.eclipse => GochyaColors.backgroundMid,
-    _ => GochyaColors.primary,
+    CreatureElement.fire => GochyaElementColors.fire,
+    CreatureElement.water => GochyaElementColors.water,
+    CreatureElement.earth => GochyaElementColors.earth,
+    CreatureElement.steam => GochyaElementColors.steam,
+    CreatureElement.air => GochyaElementColors.air,
+    CreatureElement.light => GochyaElementColors.light,
+    CreatureElement.dark => GochyaElementColors.dark,
+    CreatureElement.arcane => GochyaElementColors.arcane,
+    CreatureElement.magma => GochyaElementColors.magma,
+    CreatureElement.mud => GochyaElementColors.mud,
+    CreatureElement.storm => GochyaElementColors.storm,
+    CreatureElement.smoke => GochyaElementColors.smoke,
+    CreatureElement.sand => GochyaElementColors.sand,
+    CreatureElement.eclipse => GochyaElementColors.eclipse,
+    CreatureElement.inferno => GochyaElementColors.inferno,
+    CreatureElement.prism => GochyaElementColors.prism,
+    CreatureElement.crystal => GochyaElementColors.crystal,
   };
 }
 

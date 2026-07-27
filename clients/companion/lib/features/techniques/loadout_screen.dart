@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/gochya_loader.dart';
+import '../dojo_upsell/dojo_upsell_screen.dart';
 import '../../app/theme.dart';
 import '../../core/identifiers/uuid_v4.dart';
 import '../../core/models/technique_models.dart';
@@ -253,7 +254,52 @@ class _LoadoutContent extends StatelessWidget {
             ),
             const SizedBox(height: 10),
           ],
+        const SizedBox(height: 14),
+        const _DojoUpsellEntry(),
       ],
+    );
+  }
+}
+
+/// Where new cards come from is the question this screen provokes, so the
+/// answer lives at the end of the collection rather than in a separate tab.
+class _DojoUpsellEntry extends StatelessWidget {
+  const _DojoUpsellEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Откуда берутся карты',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Задания, награды PvP, дневная активность и гача — до Epic. '
+              'Запись удара на часах открывает вершину шкалы.',
+            ),
+            const SizedBox(height: 16),
+            FilledButton.tonalIcon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => const DojoUpsellScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.sports_martial_arts),
+              label: const Text('Про запись приёмов'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

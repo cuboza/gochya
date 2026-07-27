@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/session/session_store.dart';
 import '../battle/battle_screen.dart';
 import '../breeding/breeding_screen.dart';
 import '../home/home_screen.dart';
-import '../session/session_controller.dart';
+import '../profile/profile_screen.dart';
 import '../shop/shop_screen.dart';
 
 class AppShell extends StatefulWidget {
@@ -27,7 +26,7 @@ class _AppShellState extends State<AppShell> {
       1 => ShopScreen(accessToken: widget.tokens.accessToken),
       2 => BattleScreen(accessToken: widget.tokens.accessToken),
       3 => BreedingScreen(accessToken: widget.tokens.accessToken),
-      _ => const _ProfileScreen(),
+      _ => ProfileScreen(accessToken: widget.tokens.accessToken),
     };
 
     return Scaffold(
@@ -64,29 +63,6 @@ class _AppShellState extends State<AppShell> {
             label: 'Профиль',
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ProfileScreen extends ConsumerWidget {
-  const _ProfileScreen();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Профиль')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: FilledButton.tonalIcon(
-            onPressed: () {
-              ref.read(sessionControllerProvider.notifier).signOut();
-            },
-            icon: const Icon(Icons.logout_rounded),
-            label: const Text('Выйти и отозвать сессию'),
-          ),
-        ),
       ),
     );
   }

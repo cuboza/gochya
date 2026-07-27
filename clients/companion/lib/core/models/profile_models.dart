@@ -165,6 +165,16 @@ class PetSummary {
 
   String get label =>
       name?.trim().isNotEmpty == true ? name!.trim() : 'Питомец';
+
+  /// Russian name of the life stage. An unknown stage is passed through rather
+  /// than guessed at: the server may add one before this client knows it.
+  String get stageLabel => switch (stage.toLowerCase()) {
+    'egg' => 'Яйцо',
+    'baby' => 'Малыш',
+    'teen' => 'Подросток',
+    'adult' => 'Взрослый',
+    _ => stage,
+  };
 }
 
 class LineageTree {
