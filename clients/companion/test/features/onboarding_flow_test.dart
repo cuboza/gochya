@@ -63,7 +63,8 @@ void main() {
 
     expect(flow.hatchRequests, 1);
     expect(find.text('Луми'), findsOneWidget);
-    expect(find.text('Состояние'), findsOneWidget);
+    // Needs moved inside the pet card, so the old section heading is gone.
+    expect(find.text('Сытость'), findsOneWidget);
   });
 
   testWidgets('underage result stops before starter selection', (tester) async {

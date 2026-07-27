@@ -38,17 +38,16 @@ void main() {
     expect(find.textContaining('Vitality 118'), findsWidgets);
   });
 
-  testWidgets('the symbiosis card sits above the lineage card', (tester) async {
+  testWidgets('the main screen no longer carries the lineage card', (
+    tester,
+  ) async {
     await _pumpHome(tester);
 
-    final symbiosis = find.text('Симбиоз');
-    final lineage = find.text('История рода');
-    expect(symbiosis, findsOneWidget);
-    expect(lineage, findsOneWidget);
-    expect(
-      tester.getTopLeft(symbiosis).dy,
-      lessThan(tester.getTopLeft(lineage).dy),
-    );
+    // Lineage is a once-in-a-while lookup, not a daily action, so it lives on
+    // the pet rows in the profile now.
+    expect(find.text('История рода'), findsNothing);
+    expect(find.text('Открыть родословную'), findsNothing);
+    expect(find.text('Симбиоз'), findsOneWidget);
   });
 }
 

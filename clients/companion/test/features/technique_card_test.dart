@@ -19,6 +19,41 @@ void main() {
     expect(lores, hasLength(TechniqueType.values.length));
   });
 
+  testWidgets('the compact face drops type flavour, keeps what differs', (
+    tester,
+  ) async {
+    final card = _card(TechniqueType.uppercut);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildGochyaTheme(),
+        home: Scaffold(body: TechniqueCardFace(card: card, compact: true)),
+      ),
+    );
+
+    // Description and lore belong to the type, so in a collection they repeat
+    // on every card of that type and bury the numbers that actually differ.
+    expect(find.text(TechniqueType.uppercut.description), findsNothing);
+    expect(find.text(TechniqueType.uppercut.lore), findsNothing);
+
+    // What tells two cards apart stays.
+    expect(find.text(TechniqueType.uppercut.label), findsOneWidget);
+    expect(find.textContaining('урон'), findsOneWidget);
+    expect(find.textContaining('крит'), findsOneWidget);
+  });
+
+  testWidgets('the full face still tells the story', (tester) async {
+    final card = _card(TechniqueType.uppercut);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildGochyaTheme(),
+        home: Scaffold(body: TechniqueCardFace(card: card)),
+      ),
+    );
+
+    expect(find.text(TechniqueType.uppercut.description), findsOneWidget);
+    expect(find.text(TechniqueType.uppercut.lore), findsOneWidget);
+  });
+
   test('type multipliers mirror core/src/technique.rs', () {
     expect(TechniqueType.jab.typeMultiplier, 0.9);
     expect(TechniqueType.hook.typeMultiplier, 1.0);

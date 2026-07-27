@@ -14,7 +14,9 @@ void main() {
     await tester.pumpWidget(const DemoPlayerScope(child: GochyaApp()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Привет, Ника'), findsOneWidget);
+    // The greeting block is gone; reaching the pet is what proves the
+    // signed-in home screen rendered.
+    expect(find.text('Моти'), findsOneWidget);
     expect(find.text('Моти'), findsOneWidget);
     expect(find.text('81%'), findsOneWidget);
 

@@ -8,15 +8,19 @@ import 'package:gochya_companion/features/activity/activity_rings.dart';
 import 'package:gochya_companion/features/home/symbiosis_card.dart';
 
 void main() {
-  testWidgets('shows the day against the goals the server set', (tester) async {
+  testWidgets('shows Vitality and leaves the figures to the detail screen', (
+    tester,
+  ) async {
     await _pump(tester, _FakeRepository());
 
-    expect(find.text('11240 / 9000'), findsOneWidget);
-    expect(find.text('7.2 / 7.5 ч'), findsOneWidget);
-    expect(find.text('380 / 420'), findsOneWidget);
     // Vitality is the aggregate the pet actually grows on, so it sits in the
     // middle of the rings.
     expect(find.text('118'), findsOneWidget);
+    // The exact numbers live on the activity screen now: on the main screen
+    // the ring already answers "am I on track" and the figures only repeated
+    // it.
+    expect(find.text('11240 / 9000'), findsNothing);
+    expect(find.text('380 / 420'), findsNothing);
   });
 
   testWidgets('leaves the rings empty with no health source', (tester) async {
@@ -26,7 +30,6 @@ void main() {
     // not as a zero-scoring day.
     expect(find.text('—'), findsWidgets);
     expect(find.textContaining('Подключите источник здоровья'), findsOneWidget);
-    expect(find.text('11240 / 9000'), findsNothing);
   });
 
   testWidgets('says what happened when activity cannot be read', (

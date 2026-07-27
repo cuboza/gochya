@@ -83,7 +83,9 @@ void main() {
 
     expect(store.tokens?.accessToken, 'access-token');
     expect(store.tokens?.refreshToken, 'refresh-token');
-    expect(find.text('Привет, Ника'), findsOneWidget);
+    // The greeting block is gone; reaching the pet is what proves the
+    // signed-in home screen rendered.
+    expect(find.text('Моти'), findsOneWidget);
     expect(find.text('Токены не вводятся вручную'), findsNothing);
   });
 
@@ -115,7 +117,9 @@ void main() {
 
     expect(store.tokens?.accessToken, 'access-token');
     expect(store.tokens?.refreshToken, 'refresh-token');
-    expect(find.text('Привет, Ника'), findsOneWidget);
+    // The greeting block is gone; reaching the pet is what proves the
+    // signed-in home screen rendered.
+    expect(find.text('Моти'), findsOneWidget);
   });
 
   testWidgets('keeps signed-out state when Apple login is cancelled', (
@@ -172,7 +176,7 @@ void main() {
     expect(find.text('Не удалось войти. Повторите попытку.'), findsNothing);
   });
 
-  testWidgets('renders profile, active pet, needs, and lineage', (
+  testWidgets('renders the player, the pet, its needs and its lineage', (
     tester,
   ) async {
     final store = _MemorySessionStore(tokens: _tokens);
@@ -192,21 +196,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Привет, Ника'), findsOneWidget);
+    // The greeting block is gone; reaching the pet is what proves the
+    // signed-in home screen rendered.
+    expect(find.text('Моти'), findsOneWidget);
     expect(find.text('Моти'), findsOneWidget);
     expect(find.text('81%'), findsOneWidget);
-    final lineageButton = find.text('Открыть родословную');
-    final homeScrollable = find.byType(Scrollable).first;
-    await tester.scrollUntilVisible(
-      lineageButton,
-      300,
-      scrollable: homeScrollable,
-    );
-    await tester.drag(homeScrollable, const Offset(0, -100));
+    // Lineage moved off the main screen: it now hangs off the pet row in the
+    // profile, where every pet is already listed.
+    await tester.tap(find.text('Профиль'));
     await tester.pumpAndSettle();
-    expect(find.text('Открыть родословную'), findsOneWidget);
-
-    await tester.tap(lineageButton);
+    await tester.tap(find.text('Моти'));
     await tester.pumpAndSettle();
 
     expect(find.text('Родословная · Моти'), findsOneWidget);

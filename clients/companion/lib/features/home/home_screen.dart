@@ -19,7 +19,6 @@ import '../creatures/rigged_creature.dart';
 import '../onboarding/onboarding_repository.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../session/session_controller.dart';
-import 'lineage_screen.dart';
 import 'need_indicator.dart';
 import 'needs_prediction.dart';
 import 'profile_repository.dart';
@@ -40,6 +39,11 @@ class HomeScreen extends ConsumerWidget {
           style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.4),
         ),
         actions: [
+          // The care streak is the one number worth carrying everywhere, so it
+          // rides in the bar instead of a greeting block that repeated the
+          // player's own name to them on every visit.
+          if (snapshot.value case final loaded?)
+            _StreakChip(days: loaded.profile.streakDays),
           // Symbiosis is a headline mechanic, so it gets a permanent entry
           // point instead of living only in a card below the fold.
           IconButton(
@@ -79,14 +83,6 @@ class HomeScreen extends ConsumerWidget {
             onCareChanged: () {
               ref.invalidate(homeSnapshotProvider(accessToken));
             },
-            onOpenLineage: (pet) {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (context) =>
-                      LineageScreen(accessToken: accessToken, pet: pet),
-                ),
-              );
-            },
           ),
         ),
       ),
@@ -100,14 +96,12 @@ class _HomeContent extends StatefulWidget {
     required this.snapshot,
     required this.core,
     required this.onCareChanged,
-    required this.onOpenLineage,
   });
 
   final String accessToken;
   final HomeSnapshot snapshot;
   final GochyaCore? core;
   final VoidCallback onCareChanged;
-  final ValueChanged<PetSummary> onOpenLineage;
 
   @override
   State<_HomeContent> createState() => _HomeContentState();
@@ -179,30 +173,18 @@ class _HomeContentState extends State<_HomeContent>
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
-        Text(
-          'Привет, ${snapshot.profile.label}',
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          snapshot.profile.streakDays == 0
-              ? 'Начни серию заботы сегодня'
-              : 'Серия заботы: ${snapshot.profile.streakDays} дн.',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyLarge?.copyWith(color: GochyaColors.secondary),
-        ),
-        const SizedBox(height: 20),
         if (pet == null)
           _NoPetState(accessToken: accessToken)
         else ...[
-          _PetHero(pet: pet, reaction: _action, reactionProgress: _reaction),
-          const SizedBox(height: 16),
+          // Needs live inside the pet card rather than in one of their own.
+          // They describe the creature above them, and a separate titled card
+          // pushed the daily care actions a full screen further down.
           // Decay between profile reads is predicted by the Core, so the pet
           // does not sit frozen at whatever the last response said.
-          _NeedsCard(
+          _PetHero(
+            pet: pet,
+            reaction: _action,
+            reactionProgress: _reaction,
             needs: predictNeeds(
               core: widget.core,
               pet: pet,
@@ -219,35 +201,48 @@ class _HomeContentState extends State<_HomeContent>
           ),
           const SizedBox(height: 16),
           SymbiosisCard(accessToken: accessToken),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'История рода',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'До трёх поколений, без приватного состояния предков.',
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.tonalIcon(
-                    onPressed: () => widget.onOpenLineage(pet),
-                    icon: const Icon(Icons.account_tree_outlined),
-                    label: const Text('Открыть родословную'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // Lineage left the main screen: it is something a player looks up
+          // once in a while, not a daily action, and it now hangs off the pet
+          // in the profile where every pet is already listed.
         ],
       ],
+    );
+  }
+}
+
+/// The care streak, small enough to live in the app bar.
+class _StreakChip extends StatelessWidget {
+  const _StreakChip({required this.days});
+
+  final int days;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: days == 0 ? 'Серии заботы пока нет' : 'Серия заботы: $days дней',
+      child: ExcludeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.local_fire_department_rounded,
+                size: 20,
+                color: GochyaColors.secondary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '$days',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: GochyaColors.secondary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -257,9 +252,11 @@ class _PetHero extends StatelessWidget {
     required this.pet,
     required this.reaction,
     required this.reactionProgress,
+    required this.needs,
   });
 
   final PetSummary pet;
+  final PetNeeds needs;
 
   /// One-shot care reaction, or `null` when the pet is just idling.
   final CreatureAction? reaction;
@@ -385,6 +382,28 @@ class _PetHero extends StatelessWidget {
                     ],
                   ),
                 ],
+                const SizedBox(height: 16),
+                NeedIndicator(
+                  label: 'Сытость',
+                  value: needs.hunger,
+                  color: GochyaColors.hunger,
+                ),
+                NeedIndicator(
+                  label: 'Энергия',
+                  value: needs.energy,
+                  color: GochyaColors.energy,
+                ),
+                NeedIndicator(
+                  label: 'Гигиена',
+                  value: needs.hygiene,
+                  color: GochyaColors.hygiene,
+                ),
+                NeedIndicator(
+                  label: 'Настроение',
+                  value: needs.mood,
+                  color: GochyaColors.mood,
+                  bottomPadding: 0,
+                ),
               ],
             ),
           ),
@@ -429,54 +448,6 @@ class _FlyingTreat extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _NeedsCard extends StatelessWidget {
-  const _NeedsCard({required this.needs});
-
-  final PetNeeds needs;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Состояние',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 18),
-            NeedIndicator(
-              label: 'Сытость',
-              value: needs.hunger,
-              color: GochyaColors.hunger,
-            ),
-            NeedIndicator(
-              label: 'Энергия',
-              value: needs.energy,
-              color: GochyaColors.energy,
-            ),
-            NeedIndicator(
-              label: 'Гигиена',
-              value: needs.hygiene,
-              color: GochyaColors.hygiene,
-            ),
-            NeedIndicator(
-              label: 'Настроение',
-              value: needs.mood,
-              color: GochyaColors.mood,
-              bottomPadding: 0,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

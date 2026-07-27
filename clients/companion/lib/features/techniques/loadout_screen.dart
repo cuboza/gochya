@@ -435,6 +435,9 @@ class _TechniqueCardTile extends StatelessWidget {
     return TechniqueCardFace(
       card: card,
       slot: slot,
+      // The collection is a comparison list: the flavour text is identical for
+      // every card of the same type and only pushes the numbers apart.
+      compact: true,
       onTap: canSelect ? onToggle : null,
       trailing: Checkbox(
         value: isSelected,

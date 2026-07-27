@@ -14,6 +14,7 @@ class TechniqueCardFace extends StatelessWidget {
     this.slot = -1,
     this.trailing,
     this.onTap,
+    this.compact = false,
     super.key,
   });
 
@@ -23,6 +24,15 @@ class TechniqueCardFace extends StatelessWidget {
   final int slot;
   final Widget? trailing;
   final VoidCallback? onTap;
+
+  /// Drops the type description and the lore line.
+  ///
+  /// Both belong to the technique *type*, not to this card, so in a collection
+  /// of twenty they repeat verbatim on every jab and every hook — pages of the
+  /// same two paragraphs to scroll past while comparing numbers that do differ.
+  /// The compact face keeps exactly what tells two cards apart: name, rarity,
+  /// element and the stat strip.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -96,30 +106,34 @@ class TechniqueCardFace extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              card.type.description,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                height: 1.35,
+                            if (!compact) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                card.type.description,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  height: 1.35,
+                                ),
                               ),
-                            ),
+                            ],
                           ],
                         ),
                       ),
                       ?trailing,
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    card.type.lore,
-                    style: const TextStyle(
-                      color: GochyaColors.muted,
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                      height: 1.3,
+                  if (!compact) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      card.type.lore,
+                      style: const TextStyle(
+                        color: GochyaColors.muted,
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        height: 1.3,
+                      ),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: 12),
                   Divider(height: 1, color: frame.withValues(alpha: 0.28)),
                   const SizedBox(height: 10),

@@ -5,6 +5,7 @@ import '../../app/gochya_loader.dart';
 import '../../app/theme.dart';
 import '../../core/models/profile_models.dart';
 import '../creatures/creature_art.dart';
+import '../home/lineage_screen.dart';
 import '../home/profile_repository.dart';
 import '../session/session_controller.dart';
 
@@ -52,7 +53,18 @@ class ProfileScreen extends ConsumerWidget {
                 const _NoPetsCard()
               else
                 for (final pet in value.pets) ...[
-                  _PetRow(pet: pet, isActive: pet.id == value.activePet?.id),
+                  _PetRow(
+                    pet: pet,
+                    isActive: pet.id == value.activePet?.id,
+                    onOpenLineage: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) =>
+                              LineageScreen(accessToken: accessToken, pet: pet),
+                        ),
+                      );
+                    },
+                  ),
                   const SizedBox(height: 10),
                 ],
               const SizedBox(height: 16),
@@ -161,71 +173,87 @@ class _Stat extends StatelessWidget {
 }
 
 class _PetRow extends StatelessWidget {
-  const _PetRow({required this.pet, required this.isActive});
+  const _PetRow({
+    required this.pet,
+    required this.isActive,
+    required this.onOpenLineage,
+  });
 
   final PetSummary pet;
   final bool isActive;
+  final VoidCallback onOpenLineage;
 
   @override
   Widget build(BuildContext context) {
     final element = creatureElementOf(pet.genome);
     final tint = element?.tint ?? GochyaColors.primary;
+    // The whole row opens the lineage: it is the one thing there is to do with
+    // a pet from here, so it does not need a button of its own.
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: tint.withValues(alpha: 0.22),
-                shape: BoxShape.circle,
-                border: Border.all(color: tint, width: 1.5),
+      child: InkWell(
+        onTap: onOpenLineage,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: tint.withValues(alpha: 0.22),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: tint, width: 1.5),
+                ),
+                child: Icon(Icons.pets, color: tint, size: 22),
               ),
-              child: Icon(Icons.pets, color: tint, size: 22),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          pet.label,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            pet.label,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
                         ),
-                      ),
-                      if (isActive) ...[
-                        const SizedBox(width: 8),
-                        const _ActiveChip(),
+                        if (isActive) ...[
+                          const SizedBox(width: 8),
+                          const _ActiveChip(),
+                        ],
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    element == null
-                        ? '${pet.stageLabel} · уровень ${pet.level}'
-                        : '${element.label} · ${pet.stageLabel} · '
-                              'уровень ${pet.level}',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: GochyaColors.muted),
-                  ),
-                  Text(
-                    'поколение ${pet.generation}',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: GochyaColors.muted),
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      element == null
+                          ? '${pet.stageLabel} · уровень ${pet.level}'
+                          : '${element.label} · ${pet.stageLabel} · '
+                                'уровень ${pet.level}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: GochyaColors.muted,
+                      ),
+                    ),
+                    Text(
+                      'поколение ${pet.generation}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: GochyaColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              const Icon(
+                Icons.account_tree_outlined,
+                size: 20,
+                color: GochyaColors.muted,
+              ),
+            ],
+          ),
         ),
       ),
     );

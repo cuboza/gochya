@@ -70,19 +70,16 @@ class _CareActionsState extends ConsumerState<CareActions> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Забота',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              isSleeping
-                  ? '${widget.pet.label} спит до ${_timeLabel(sleepingUntil)}.'
-                  : 'Действия сохраняются защищённо и подтверждаются сервером.',
-              style: const TextStyle(color: GochyaColors.muted),
-            ),
+            // No «Забота» heading: four labelled buttons with icons say what
+            // they are, and the card already groups them. Only the sleeping
+            // line earns words here — it reports state the buttons cannot.
+            if (isSleeping) ...[
+              const SizedBox(height: 6),
+              Text(
+                '${widget.pet.label} спит до ${_timeLabel(sleepingUntil)}.',
+                style: const TextStyle(color: GochyaColors.muted),
+              ),
+            ],
             if (_pendingCount > 0) ...[
               const SizedBox(height: 12),
               DecoratedBox(
