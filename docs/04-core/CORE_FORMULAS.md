@@ -92,6 +92,44 @@ exitWeakness:
 когда все четыре потребности достигли 50. Владение и расход предметов в Core не
 входят и фиксируются сервером атомарно с новым состоянием.
 
+### 1.8. Rest effect (сон владельца → потребности питомца)
+
+`GAME_LOOP.md` §2.1 описывает связь: сон восстанавливает Energy, плохой сон
+роняет Mood. Формулы для неё не существовало — этот раздел её вводит.
+
+```
+SLEEP_TARGET_MINUTES     = 450     // 7.5 ч
+REST_ENERGY_MAX          = 60      // сколько даёт полная хорошая ночь
+POOR_SLEEP_MINUTES       = 300     // 5 ч
+POOR_SLEEP_QUALITY       = 40      // шкала качества 0..100
+POOR_SLEEP_MOOD_PENALTY  = 10
+
+applyRest(needs, sleep_minutes, sleep_quality):
+    restNorm   = min(sleep_minutes / SLEEP_TARGET_MINUTES, 1.0)
+    quality    = sleep_quality / 100
+    energyGain = floor(REST_ENERGY_MAX * restNorm * quality)
+    needs.energy = min(100, needs.energy + energyGain)
+
+    poorSleep = sleep_minutes < POOR_SLEEP_MINUTES
+             or sleep_quality < POOR_SLEEP_QUALITY
+    if poorSleep:
+        needs.mood = max(0, needs.mood - POOR_SLEEP_MOOD_PENALTY)
+
+    return needs
+```
+
+**Границы намеренные:**
+
+- Восстанавливается **только Energy**. Голод и гигиену тело владельца не
+  закрывает — иначе уход теряет смысл целиком, а не становится докруткой.
+- Короткий сон и плохое качество наказываются **одинаково**: шесть часов рваного
+  сна и четыре часа крепкого одинаково не восстанавливают.
+- Функция не трогает `is_sleeping`: это состояние питомца, а не владельца.
+- Zero-streak и Weakness пересчитываются обычными правилами §1.6 — отдых не
+  отменяет истощения, накопленного голодом.
+- Применяется **один раз за ночь**; идемпотентность по дате обеспечивает сервер,
+  как и для наград активности. Core остаётся чистой функцией.
+
 ---
 
 ## 2. DOJО / TECHNIQUE CARD

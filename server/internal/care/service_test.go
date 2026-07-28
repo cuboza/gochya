@@ -209,3 +209,12 @@ func (fakeCore) ApplyCare(
 ) (corebridge.NeedsState, error) {
 	return state, nil
 }
+
+func (fakeCore) ApplyRest(
+	_ context.Context,
+	state corebridge.NeedsState,
+	_ uint16,
+	_ uint8,
+) (corebridge.NeedsState, error) {
+	return state, nil
+}

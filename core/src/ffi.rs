@@ -13,7 +13,7 @@ use crate::{
     heart::validate_heart,
     pet::{
         CareAction, CareItem, Needs, NeedsDecayRemainders, NeedsState, Stats, advance_needs,
-        apply_care_action,
+        apply_care_action, apply_rest,
     },
     synergy::{
         DailyActivitySnapshot, DailyGoals, DataSource, MAX_WORKOUTS, PersonalBaseline,
@@ -25,7 +25,7 @@ use crate::{
     },
 };
 
-pub const ABI_VERSION: u32 = 0x0002_0300;
+pub const ABI_VERSION: u32 = 0x0002_0400;
 pub const ABI_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -861,6 +861,41 @@ pub extern "C" fn gochya_advance_needs_v1(
             return GochyaStatus::InvalidArgument;
         };
         let Some(result) = advance_needs(state, elapsed_seconds) else {
+            return GochyaStatus::DomainRejected;
+        };
+        write_needs_state(out_state, result);
+        GochyaStatus::Ok
+    })
+}
+
+/// Applies one night of the owner's sleep to the pet (`CORE_FORMULAS.md` §1.8).
+///
+/// Additive to the ABI: no existing struct changes, so an older caller keeps
+/// working untouched.
+#[unsafe(no_mangle)]
+pub extern "C" fn gochya_apply_rest_v1(
+    input: *const GochyaNeedsStateV1,
+    sleep_minutes: u16,
+    sleep_quality: u8,
+    out_state: *mut GochyaNeedsStateV1,
+) -> GochyaStatus {
+    catch_status(|| {
+        if input.is_null() || out_state.is_null() {
+            return GochyaStatus::InvalidArgument;
+        }
+        // SAFETY: pointers are non-null and the caller promises readable memory.
+        let input = unsafe { &*input };
+        if !valid_header(
+            input.struct_size,
+            input.schema_version,
+            size_of::<GochyaNeedsStateV1>(),
+        ) {
+            return GochyaStatus::SchemaMismatch;
+        }
+        let Some(state) = needs_state_from_ffi(input) else {
+            return GochyaStatus::InvalidArgument;
+        };
+        let Some(result) = apply_rest(state, sleep_minutes, sleep_quality) else {
             return GochyaStatus::DomainRejected;
         };
         write_needs_state(out_state, result);

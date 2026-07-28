@@ -34,8 +34,9 @@ void main() {
   }
 
   group('ABI contract', () {
-    test('loaded library matches the ABI the client was built against', () {
-      expect(core.abiVersion, coreAbiVersion);
+    test('the loaded library can serve this client', () {
+      expect(core.abiVersion, greaterThanOrEqualTo(coreMinimumAbiVersion));
+      expect(core.abiVersion >> 16, coreMinimumAbiVersion >> 16);
     });
 
     test('needs struct layout matches the C header', () {
@@ -46,7 +47,10 @@ void main() {
 
     test('a Core built from another revision is refused at open', () {
       final bindings = CoreBindings.open(libraryPath: _hostLibraryPath());
-      expect(bindings.abiVersion(), coreAbiVersion);
+      expect(
+        bindings.abiVersion(),
+        greaterThanOrEqualTo(coreMinimumAbiVersion),
+      );
       expect(bindings.assertAbiVersion, returnsNormally);
     });
 
@@ -142,6 +146,61 @@ void main() {
     test('refuses a negative elapsed duration', () {
       expect(
         () => core.advanceNeeds(healthy(), const Duration(seconds: -1)),
+        throwsArgumentError,
+      );
+    });
+  });
+
+  group('applyRest', () {
+    // `CORE_FORMULAS.md` §1.8 — the owner's night moving the pet's state.
+    test('a full good night restores the whole rest allowance', () {
+      final rested = core.applyRest(
+        CoreNeedsState(hunger: 80, energy: 20, hygiene: 60, mood: 50),
+        slept: const Duration(minutes: 450),
+        quality: 100,
+      );
+
+      expect(rested.energy, 80);
+    });
+
+    test('quality scales the gain, so a bad long night gives little', () {
+      final rested = core.applyRest(
+        CoreNeedsState(hunger: 80, energy: 20, hygiene: 60, mood: 50),
+        slept: const Duration(minutes: 450),
+        quality: 20,
+      );
+
+      expect(rested.energy, 32);
+    });
+
+    test('a short night costs mood', () {
+      final rested = core.applyRest(
+        CoreNeedsState(hunger: 80, energy: 20, hygiene: 60, mood: 50),
+        slept: const Duration(minutes: 240),
+        quality: 100,
+      );
+
+      expect(rested.mood, 40);
+    });
+
+    test('rest feeds nothing — care still has a job', () {
+      final rested = core.applyRest(
+        CoreNeedsState(hunger: 30, energy: 20, hygiene: 40, mood: 50),
+        slept: const Duration(minutes: 450),
+        quality: 100,
+      );
+
+      expect(rested.hunger, 30);
+      expect(rested.hygiene, 40);
+    });
+
+    test('refuses an impossible quality rather than clamping it', () {
+      expect(
+        () => core.applyRest(
+          CoreNeedsState(hunger: 80, energy: 20, hygiene: 60, mood: 50),
+          slept: const Duration(minutes: 450),
+          quality: 101,
+        ),
         throwsArgumentError,
       );
     });

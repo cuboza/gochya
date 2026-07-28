@@ -10,7 +10,7 @@
 - Добавление функции или поля через новую структуру повышает `minor`; изменение размера, порядка или смысла существующего поля повышает `major`.
 - Каждый payload содержит `schema_version`; ABI version и data schema version не смешиваются.
 
-Текущая реализация: ABI `2.3.0` (`0x00020300`), schema `1`. Сгенерированный
+Текущая реализация: ABI `2.4.0` (`0x00020400`), schema `1`. Сгенерированный
 artifact — `core/ffi/gochya_core.h`; `core/build.rs` сравнивает его с результатом
 `cbindgen` при каждой сборке.
 
@@ -124,6 +124,7 @@ enum {
 - `gochya_generate_starter_genome_v1`;
 - `gochya_advance_needs_v1`;
 - `gochya_apply_care_v1`.
+- `gochya_apply_rest_v1`.
 
 Операции со структурными envelope используют `struct_size`/`schema_version`;
 все функции проверяют применимые null, schema, enum range и finite-float
@@ -290,6 +291,18 @@ sleeping/Weakness. Reserved bytes должны быть нулевыми.
 `4=Soap`, `5=Shampoo`. Неизвестные ID возвращают `GOCHYA_INVALID_ARGUMENT`, а
 несовместимые пары — `GOCHYA_DOMAIN_REJECTED`. Инвентарь, время и revision
 остаются за пределами ABI.
+
+`gochya_apply_rest_v1(input, sleep_minutes, sleep_quality, out_state)`
+применяет ночь сна владельца к потребностям питомца по `CORE_FORMULAS.md` §1.8.
+Качество — шкала `0..100`; значение выше возвращает `GOCHYA_INVALID_ARGUMENT`.
+Восстанавливается только Energy, короткая или плохая ночь снимает Mood.
+Функция чистая: идемпотентность «одна ночь — один раз» обеспечивает consumer.
+
+### Миграция 2.3.0 → 2.4.0
+
+Изменение добавочное: экспортирован `gochya_apply_rest_v1`; структуры и
+существующие symbols не изменены, поэтому старый consumer продолжает работать
+без правок. Тем, кому нужен rest, проверять `gochya_abi_version() >= 0x00020400`.
 
 ### Миграция 2.2.0 → 2.3.0
 

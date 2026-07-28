@@ -325,6 +325,17 @@ GochyaStatus gochya_advance_needs_v1(const struct GochyaNeedsStateV1 *input,
                                      uint64_t elapsed_seconds,
                                      struct GochyaNeedsStateV1 *out_state);
 
+/**
+ * Applies one night of the owner's sleep to the pet (`CORE_FORMULAS.md` §1.8).
+ *
+ * Additive to the ABI: no existing struct changes, so an older caller keeps
+ * working untouched.
+ */
+GochyaStatus gochya_apply_rest_v1(const struct GochyaNeedsStateV1 *input,
+                                  uint16_t sleep_minutes,
+                                  uint8_t sleep_quality,
+                                  struct GochyaNeedsStateV1 *out_state);
+
 GochyaStatus gochya_apply_care_v1(const struct GochyaNeedsStateV1 *input,
                                   uint8_t action,
                                   uint8_t item,

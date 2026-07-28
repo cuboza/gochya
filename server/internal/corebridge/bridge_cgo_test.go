@@ -302,10 +302,40 @@ func TestNativeEngineNeedsAndCareMatchRustCore(t *testing.T) {
 	if _, err := engine.ApplyCare(context.Background(), careInput, 0, 4); err == nil {
 		t.Fatal("ApplyCare accepted soap as food")
 	}
+	// CORE_FORMULAS.md §1.8 — the owner's night reaching the pet.
+	restInput := initial
+	restInput.Needs.Energy = 20
+	restInput.Needs.Mood = 50
+	rested, err := engine.ApplyRest(context.Background(), restInput, 450, 100)
+	if err != nil {
+		t.Fatalf("ApplyRest: %v", err)
+	}
+	if rested.Needs.Energy != 80 || rested.Needs.Mood != 50 {
+		t.Fatalf("rested state = %#v", rested)
+	}
+	// Rest restores energy and nothing else: care keeps its job.
+	if rested.Needs.Hunger != restInput.Needs.Hunger ||
+		rested.Needs.Hygiene != restInput.Needs.Hygiene {
+		t.Fatalf("rest touched hunger or hygiene: %#v", rested)
+	}
+	short, err := engine.ApplyRest(context.Background(), restInput, 240, 100)
+	if err != nil {
+		t.Fatalf("short ApplyRest: %v", err)
+	}
+	if short.Needs.Mood != 40 {
+		t.Fatalf("short night mood = %d, want 40", short.Needs.Mood)
+	}
+	if _, err := engine.ApplyRest(context.Background(), restInput, 450, 101); err == nil {
+		t.Fatal("ApplyRest accepted a quality above the scale")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := engine.AdvanceNeeds(ctx, initial, 1); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled AdvanceNeeds error = %v", err)
+	}
+	if _, err := engine.ApplyRest(ctx, initial, 450, 100); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled ApplyRest error = %v", err)
 	}
 }
 

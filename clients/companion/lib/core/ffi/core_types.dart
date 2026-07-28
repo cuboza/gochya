@@ -1,9 +1,12 @@
 import 'dart:ffi';
 
-/// ABI the client is compiled against. `gochya_abi_version` must return exactly
-/// this: a Core built from another revision computes different formulas, and a
-/// silent mismatch would let the phone disagree with the server.
-const int coreAbiVersion = 0x0002_0300;
+/// Lowest Core ABI this client works against.
+///
+/// The compatibility rule matches the server's (`corebridge/types.go`): the top
+/// half must be identical and the rest must not be older. Adding a function is
+/// additive, so a newer Core still serves an older client — demanding an exact
+/// match would reject a library the server itself accepts.
+const int coreMinimumAbiVersion = 0x0002_0400;
 
 /// Schema version stamped into every versioned struct header.
 const int coreAbiSchemaVersion = 1;

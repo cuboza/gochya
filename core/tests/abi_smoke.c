@@ -6,7 +6,7 @@
 #include <string.h>
 
 int main(void) {
-  assert(gochya_abi_version() == UINT32_C(0x00020300));
+  assert(gochya_abi_version() == UINT32_C(0x00020400));
   assert(sizeof(GochyaPunchMetricsV1) == 40);
   assert(sizeof(GochyaHeartEvidenceV1) == 36);
   assert(sizeof(GochyaHeartVerdictV1) == 28);

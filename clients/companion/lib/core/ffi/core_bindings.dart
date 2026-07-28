@@ -34,6 +34,21 @@ typedef CoreApplyCareFn =
       Pointer<GochyaNeedsStateV1> outState,
     );
 
+typedef _ApplyRestNative =
+    Int32 Function(
+      Pointer<GochyaNeedsStateV1> input,
+      Uint16 sleepMinutes,
+      Uint8 sleepQuality,
+      Pointer<GochyaNeedsStateV1> outState,
+    );
+typedef CoreApplyRestFn =
+    int Function(
+      Pointer<GochyaNeedsStateV1> input,
+      int sleepMinutes,
+      int sleepQuality,
+      Pointer<GochyaNeedsStateV1> outState,
+    );
+
 /// Opens the Shared Core for the current platform.
 ///
 /// iOS links the Rust staticlib into the main binary, so symbols are looked up
@@ -72,6 +87,9 @@ class CoreBindings {
           ),
       applyCare = library.lookupFunction<_ApplyCareNative, CoreApplyCareFn>(
         'gochya_apply_care_v1',
+      ),
+      applyRest = library.lookupFunction<_ApplyRestNative, CoreApplyRestFn>(
+        'gochya_apply_rest_v1',
       );
 
   factory CoreBindings.open({String? libraryPath}) {
@@ -81,17 +99,23 @@ class CoreBindings {
   final CoreAbiVersionFn abiVersion;
   final CoreAdvanceNeedsFn advanceNeeds;
   final CoreApplyCareFn applyCare;
+  final CoreApplyRestFn applyRest;
 
-  /// Fails closed when the loaded library is not the revision this client was
-  /// built against. A drifted Core would compute different formulas than the
-  /// server, which is worse than refusing to start.
+  /// Fails closed when the loaded library cannot serve this client.
+  ///
+  /// Same rule as the server (`server/internal/corebridge/types.go`): the top
+  /// half must match and the rest must not be older. A Core from a different
+  /// major line computes different formulas than the server, which is worse
+  /// than refusing to start; a newer minor is additive and fine.
   void assertAbiVersion() {
     final loaded = abiVersion();
-    if (loaded != coreAbiVersion) {
+    final sameLine = loaded >> 16 == coreMinimumAbiVersion >> 16;
+    if (!sameLine || loaded < coreMinimumAbiVersion) {
       throw CoreException(
         CoreStatus.schemaMismatch,
-        'Shared Core ABI 0x${loaded.toRadixString(16)} does not match the '
-        'expected 0x${coreAbiVersion.toRadixString(16)}',
+        'Shared Core ABI 0x${loaded.toRadixString(16)} cannot serve this '
+        'client, which needs 0x${coreMinimumAbiVersion.toRadixString(16)} '
+        'through 0x0002ffff',
       );
     }
   }

@@ -19,7 +19,7 @@ import '../creatures/rigged_creature.dart';
 import '../onboarding/onboarding_repository.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../session/session_controller.dart';
-import 'need_indicator.dart';
+import 'need_gauge.dart';
 import 'needs_prediction.dart';
 import 'profile_repository.dart';
 import 'symbiosis_card.dart';
@@ -382,27 +382,40 @@ class _PetHero extends StatelessWidget {
                     ],
                   ),
                 ],
-                const SizedBox(height: 16),
-                NeedIndicator(
-                  label: 'Сытость',
-                  value: needs.hunger,
-                  color: GochyaColors.hunger,
-                ),
-                NeedIndicator(
-                  label: 'Энергия',
-                  value: needs.energy,
-                  color: GochyaColors.energy,
-                ),
-                NeedIndicator(
-                  label: 'Гигиена',
-                  value: needs.hygiene,
-                  color: GochyaColors.hygiene,
-                ),
-                NeedIndicator(
-                  label: 'Настроение',
-                  value: needs.mood,
-                  color: GochyaColors.mood,
-                  bottomPadding: 0,
+                const SizedBox(height: 18),
+                // Four rings in a row, as in the V1 concept layout the art
+                // bible still calls the reference. Wrap, not Row: at a large
+                // font scale they fall into two rows instead of overflowing.
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: 12,
+                  runSpacing: 14,
+                  children: [
+                    NeedGauge(
+                      label: 'Сытость',
+                      icon: Icons.restaurant_rounded,
+                      value: needs.hunger,
+                      color: GochyaColors.hunger,
+                    ),
+                    NeedGauge(
+                      label: 'Энергия',
+                      icon: Icons.bedtime_rounded,
+                      value: needs.energy,
+                      color: GochyaColors.energy,
+                    ),
+                    NeedGauge(
+                      label: 'Гигиена',
+                      icon: Icons.water_drop_rounded,
+                      value: needs.hygiene,
+                      color: GochyaColors.hygiene,
+                    ),
+                    NeedGauge(
+                      label: 'Настроение',
+                      icon: Icons.favorite_rounded,
+                      value: needs.mood,
+                      color: GochyaColors.mood,
+                    ),
+                  ],
                 ),
               ],
             ),

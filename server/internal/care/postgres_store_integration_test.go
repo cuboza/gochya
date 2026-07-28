@@ -395,6 +395,17 @@ func (c *countingCareCore) AdvanceNeeds(
 	return state, nil
 }
 
+// Care never rests in this suite; the method exists so the double still
+// satisfies CareEngine.
+func (c *countingCareCore) ApplyRest(
+	_ context.Context,
+	state corebridge.NeedsState,
+	_ uint16,
+	_ uint8,
+) (corebridge.NeedsState, error) {
+	return state, nil
+}
+
 func (c *countingCareCore) ApplyCare(
 	_ context.Context,
 	state corebridge.NeedsState,

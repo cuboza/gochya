@@ -262,6 +262,10 @@ type NeedsState struct {
 type CareEngine interface {
 	AdvanceNeeds(context.Context, NeedsState, uint64) (NeedsState, error)
 	ApplyCare(context.Context, NeedsState, uint8, uint8) (NeedsState, error)
+	// ApplyRest folds one night of the owner's sleep into the pet's needs
+	// (CORE_FORMULAS.md §1.8). Quality is the 0..100 scale the activity
+	// snapshot already carries.
+	ApplyRest(context.Context, NeedsState, uint16, uint8) (NeedsState, error)
 }
 
 type NativeEngine struct{}

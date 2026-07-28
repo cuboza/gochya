@@ -85,3 +85,12 @@ func (NativeEngine) ApplyCare(
 ) (NeedsState, error) {
 	return NeedsState{}, ErrUnavailable
 }
+
+func (NativeEngine) ApplyRest(
+	context.Context,
+	NeedsState,
+	uint16,
+	uint8,
+) (NeedsState, error) {
+	return NeedsState{}, ErrUnavailable
+}

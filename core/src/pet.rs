@@ -23,6 +23,13 @@ pub struct Needs {
 }
 
 pub const MAX_NEEDS_ADVANCE_SECONDS: u64 = 24 * 60 * 60;
+
+/// `CORE_FORMULAS.md` §1.8 — rest effect.
+pub const SLEEP_TARGET_MINUTES: u16 = 450;
+pub const REST_ENERGY_MAX: u8 = 60;
+pub const POOR_SLEEP_MINUTES: u16 = 300;
+pub const POOR_SLEEP_QUALITY: u8 = 40;
+pub const POOR_SLEEP_MOOD_PENALTY: u8 = 10;
 pub const WEAKNESS_AFTER_SECONDS: u64 = 6 * 60 * 60;
 const DECAY_DENOMINATOR: u32 = 10_800_000;
 
@@ -218,6 +225,48 @@ fn decay_need(value: &mut u8, remainder: &mut u32, rate: u32) {
     }
 }
 
+/// Applies a night of the owner's sleep to the pet, per `CORE_FORMULAS.md` §1.8.
+///
+/// Only Energy is restored: the owner's body does not feed or wash the pet, and
+/// letting it would remove the point of care rather than reduce it to a top-up.
+/// A short night and a poor-quality night are punished the same way — six ragged
+/// hours restore no better than four sound ones.
+///
+/// Returns `None` for an impossible input, in the same way the other needs
+/// transitions do; the caller must not clamp it into something plausible.
+#[must_use]
+pub fn apply_rest(
+    mut state: NeedsState,
+    sleep_minutes: u16,
+    sleep_quality: u8,
+) -> Option<NeedsState> {
+    if !valid_needs_state(state) || sleep_quality > 100 {
+        return None;
+    }
+
+    let rest_norm =
+        f32::from(sleep_minutes.min(SLEEP_TARGET_MINUTES)) / f32::from(SLEEP_TARGET_MINUTES);
+    let quality = f32::from(sleep_quality) / 100.0_f32;
+    // Floor, not round: the Core never hands out a point the input did not earn.
+    let energy_gain = (f32::from(REST_ENERGY_MAX) * rest_norm * quality) as u8;
+    add_need(&mut state.needs.energy, energy_gain);
+
+    let poor_sleep = sleep_minutes < POOR_SLEEP_MINUTES || sleep_quality < POOR_SLEEP_QUALITY;
+    if poor_sleep {
+        state.needs.mood = state.needs.mood.saturating_sub(POOR_SLEEP_MOOD_PENALTY);
+    }
+
+    // Rest does not end the pet's own sleeping state, and it does not excuse a
+    // streak accumulated by hunger: §1.6 keeps deciding weakness.
+    if !any_need_zero(state.needs) {
+        state.zero_streak_seconds = 0;
+    }
+    if all_needs_at_least(state.needs, 50) {
+        state.is_weak = false;
+    }
+    Some(state)
+}
+
 fn add_need(value: &mut u8, amount: u8) {
     *value = value.saturating_add(amount).min(100);
 }
@@ -247,9 +296,22 @@ const fn valid_needs_state(state: NeedsState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CareAction, CareItem, Needs, NeedsState, WEAKNESS_AFTER_SECONDS, advance_needs,
-        apply_care_action, mood_multiplier,
+        CareAction, CareItem, Needs, NeedsState, POOR_SLEEP_MINUTES, POOR_SLEEP_MOOD_PENALTY,
+        POOR_SLEEP_QUALITY, REST_ENERGY_MAX, SLEEP_TARGET_MINUTES, WEAKNESS_AFTER_SECONDS,
+        advance_needs, apply_care_action, apply_rest, mood_multiplier,
     };
+
+    fn needs_state(hunger: u8, energy: u8, hygiene: u8, mood: u8) -> NeedsState {
+        NeedsState {
+            needs: Needs {
+                hunger,
+                energy,
+                hygiene,
+                mood,
+            },
+            ..NeedsState::default()
+        }
+    }
 
     #[test]
     fn mood_multiplier_is_bounded() {
@@ -355,5 +417,79 @@ mod tests {
             apply_care_action(initial, CareAction::Feed, CareItem::Soap),
             None
         );
+    }
+
+    #[test]
+    fn rest_restores_energy_in_proportion_to_the_night() {
+        let state = needs_state(50, 20, 50, 50);
+        // Full 7.5h at perfect quality is the whole REST_ENERGY_MAX.
+        let full = apply_rest(state, SLEEP_TARGET_MINUTES, 100).unwrap();
+        assert_eq!(full.needs.energy, 20 + REST_ENERGY_MAX);
+
+        // Half the night gives half the energy.
+        let half = apply_rest(state, SLEEP_TARGET_MINUTES / 2, 100).unwrap();
+        assert_eq!(half.needs.energy, 20 + REST_ENERGY_MAX / 2);
+    }
+
+    #[test]
+    fn rest_never_pushes_a_need_past_full() {
+        let state = needs_state(50, 90, 50, 50);
+        let rested = apply_rest(state, SLEEP_TARGET_MINUTES, 100).unwrap();
+        assert_eq!(rested.needs.energy, 100);
+    }
+
+    #[test]
+    fn a_long_night_of_poor_quality_restores_little() {
+        let state = needs_state(50, 20, 50, 50);
+        let rested = apply_rest(state, SLEEP_TARGET_MINUTES, 20).unwrap();
+        // Quality scales the whole gain, so eight hours of bad sleep is not
+        // eight hours of sleep.
+        assert_eq!(rested.needs.energy, 20 + REST_ENERGY_MAX / 5);
+    }
+
+    #[test]
+    fn a_short_or_poor_night_costs_mood() {
+        let state = needs_state(50, 50, 50, 50);
+        let short = apply_rest(state, POOR_SLEEP_MINUTES - 1, 100).unwrap();
+        assert_eq!(short.needs.mood, 50 - POOR_SLEEP_MOOD_PENALTY);
+
+        let poor = apply_rest(state, SLEEP_TARGET_MINUTES, POOR_SLEEP_QUALITY - 1).unwrap();
+        assert_eq!(poor.needs.mood, 50 - POOR_SLEEP_MOOD_PENALTY);
+
+        let good = apply_rest(state, SLEEP_TARGET_MINUTES, 100).unwrap();
+        assert_eq!(good.needs.mood, 50);
+    }
+
+    #[test]
+    fn rest_does_not_feed_or_wash_the_pet() {
+        let state = needs_state(30, 20, 40, 50);
+        let rested = apply_rest(state, SLEEP_TARGET_MINUTES, 100).unwrap();
+        assert_eq!(rested.needs.hunger, 30);
+        assert_eq!(rested.needs.hygiene, 40);
+    }
+
+    #[test]
+    fn rest_leaves_the_pets_own_sleeping_state_alone() {
+        let mut state = needs_state(50, 20, 50, 50);
+        state.is_sleeping = true;
+        let rested = apply_rest(state, SLEEP_TARGET_MINUTES, 100).unwrap();
+        assert!(rested.is_sleeping);
+    }
+
+    #[test]
+    fn rest_does_not_excuse_a_streak_held_by_hunger() {
+        let mut state = needs_state(0, 20, 50, 50);
+        state.zero_streak_seconds = 5 * 60 * 60;
+        state.is_weak = true;
+        let rested = apply_rest(state, SLEEP_TARGET_MINUTES, 100).unwrap();
+        // Hunger is still zero, so the streak keeps running and weakness holds.
+        assert_eq!(rested.zero_streak_seconds, 5 * 60 * 60);
+        assert!(rested.is_weak);
+    }
+
+    #[test]
+    fn rest_rejects_an_impossible_quality() {
+        let state = needs_state(50, 50, 50, 50);
+        assert!(apply_rest(state, SLEEP_TARGET_MINUTES, 101).is_none());
     }
 }

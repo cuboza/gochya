@@ -462,6 +462,47 @@ func (NativeEngine) ApplyCare(
 	return result, nil
 }
 
+func (NativeEngine) ApplyRest(
+	ctx context.Context,
+	state NeedsState,
+	sleepMinutes uint16,
+	sleepQuality uint8,
+) (NeedsState, error) {
+	select {
+	case <-ctx.Done():
+		return NeedsState{}, ctx.Err()
+	default:
+	}
+	input := needsStateInput(state)
+	var output C.GochyaNeedsStateV1
+	status := C.gochya_apply_rest_v1(
+		&input,
+		C.uint16_t(sleepMinutes),
+		C.uint8_t(sleepQuality),
+		&output,
+	)
+	if status != C.GochyaStatus_Ok {
+		return NeedsState{}, fmt.Errorf(
+			"apply pet rest: core status %d",
+			int32(status),
+		)
+	}
+	result, ok := needsStateOutput(output)
+	if !ok {
+		return NeedsState{}, fmt.Errorf(
+			"apply pet rest: invalid core output envelope",
+		)
+	}
+	// Rest is the owner's night, not the pet's: it must never flip the pet's
+	// own sleeping state.
+	if result.Sleeping != state.Sleeping {
+		return NeedsState{}, fmt.Errorf(
+			"apply pet rest: core changed the sleeping state",
+		)
+	}
+	return result, nil
+}
+
 func needsStateInput(state NeedsState) C.GochyaNeedsStateV1 {
 	input := C.GochyaNeedsStateV1{}
 	input.struct_size = C.uint32_t(unsafe.Sizeof(input))

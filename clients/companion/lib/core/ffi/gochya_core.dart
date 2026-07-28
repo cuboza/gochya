@@ -12,7 +12,7 @@ export 'core_types.dart'
         CoreException,
         CoreNeedsState,
         CoreStatus,
-        coreAbiVersion;
+        coreMinimumAbiVersion;
 
 /// Typed entry point to the Shared Core.
 ///
@@ -74,6 +74,36 @@ class GochyaCore {
       state,
       (input, output) =>
           _bindings.applyCare(input, action.code, item.code, output),
+    );
+  }
+
+  /// Applies one night of the owner's sleep (`CORE_FORMULAS.md` §1.8).
+  ///
+  /// Only Energy is restored, and a short or poor night costs Mood. This is the
+  /// half of the loop that makes care a top-up rather than a chore: the owner's
+  /// body moves the pet's state, and the buttons cover what the day did not.
+  ///
+  /// The server applies it once per night and stays the authority; this call
+  /// exists so the phone can show the same result without a second formula.
+  CoreNeedsState applyRest(
+    CoreNeedsState state, {
+    required Duration slept,
+    required int quality,
+  }) {
+    if (slept.isNegative) {
+      throw ArgumentError.value(slept, 'slept', 'must not be negative');
+    }
+    if (quality < 0 || quality > 100) {
+      throw ArgumentError.value(quality, 'quality', 'must be within 0..100');
+    }
+    return _call(
+      state,
+      (input, output) => _bindings.applyRest(
+        input,
+        slept.inMinutes.clamp(0, 0xFFFF),
+        quality,
+        output,
+      ),
     );
   }
 
