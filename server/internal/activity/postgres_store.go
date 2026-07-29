@@ -139,6 +139,7 @@ func (s *PostgresStore) Sync(
 		existing.Applied,
 		totalGains,
 	)
+	restQueued := false
 	if statDeltas != (StatDeltas{}) {
 		statsJSON, err := json.Marshal(newStats)
 		if err != nil {
@@ -159,6 +160,33 @@ func (s *PostgresStore) Sync(
 		if command.RowsAffected() != 1 {
 			return SyncResponse{}, ErrActivePetRequired
 		}
+	}
+	// CORE_FORMULAS.md §1.8: hand the night to the pet, once per date. The
+	// needs themselves are not touched here — care owns that transition and
+	// applies the pending night while it already holds the pet locked.
+	if input.Snapshot.SleepMinutes > 0 {
+		command, err := tx.Exec(
+			ctx,
+			`UPDATE pets
+			    SET pending_rest_minutes = $3,
+			        pending_rest_quality = $4
+			  WHERE owner_id = $1 AND id = $2
+			    AND NOT EXISTS (
+			        SELECT 1 FROM daily_activity
+			         WHERE player_id = $1
+			           AND activity_date = $5
+			           AND rest_applied
+			    )`,
+			input.PlayerID,
+			petID,
+			int32(input.Snapshot.SleepMinutes),
+			int16(input.Snapshot.SleepQuality),
+			activityDate,
+		)
+		if err != nil {
+			return SyncResponse{}, fmt.Errorf("queue activity pet rest: %w", err)
+		}
+		restQueued = command.RowsAffected() == 1
 	}
 	if vitalityDelta > 0 {
 		if err := applyVitality(
@@ -184,6 +212,7 @@ func (s *PostgresStore) Sync(
 		newAwarded,
 		totalGains,
 		applied,
+		restQueued,
 	); err != nil {
 		return SyncResponse{}, err
 	}
@@ -851,6 +880,7 @@ func saveActivity(
 	vitalityAwarded uint16,
 	statGains StatGains,
 	applied StatGains,
+	restApplied bool,
 ) error {
 	goalsJSON, err := json.Marshal(publicGoals(goals))
 	if err != nil {
@@ -874,8 +904,8 @@ func saveActivity(
 		     player_id,activity_date,pet_id,snapshot,fingerprint,steps,
 		     sleep_minutes,active_calories,goals,vitality_total,
 		     vitality_awarded,stat_gains,stat_gains_applied,source_metadata,
-		     created_at,updated_at)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
+		     rest_applied,created_at,updated_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$16,$15,$15)
 		 ON CONFLICT(player_id,activity_date) DO UPDATE
 		 SET snapshot=EXCLUDED.snapshot,
 		     fingerprint=EXCLUDED.fingerprint,
@@ -888,6 +918,7 @@ func saveActivity(
 		     stat_gains=EXCLUDED.stat_gains,
 		     stat_gains_applied=EXCLUDED.stat_gains_applied,
 		     source_metadata=EXCLUDED.source_metadata,
+		     rest_applied=daily_activity.rest_applied OR EXCLUDED.rest_applied,
 		     updated_at=EXCLUDED.updated_at`,
 		input.PlayerID,
 		activityDate,
@@ -904,6 +935,7 @@ func saveActivity(
 		appliedJSON,
 		input.SourceMetadata,
 		input.Now,
+		restApplied,
 	); err != nil {
 		return fmt.Errorf("save daily activity: %w", err)
 	}

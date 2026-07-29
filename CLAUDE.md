@@ -48,7 +48,17 @@ flutter test --no-pub
 ```
 
 `GOCHYA_TEST_DATABASE_URL` включает интеграционные тесты сервера; без неё они
-пропускаются.
+пропускаются. Поднять базу для них:
+
+```bash
+docker run -d --name gochya-pg -p 5432:5432 \
+  -e POSTGRES_DB=gochya_test -e POSTGRES_USER=gochya -e POSTGRES_PASSWORD=gochya \
+  postgres:16-alpine
+export GOCHYA_TEST_DATABASE_URL='postgres://gochya:gochya@127.0.0.1:5432/gochya_test?sslmode=disable'
+```
+
+С ней проходит весь набор, включая транзакционные тесты хранилищ — их стоит
+гонять при любой правке SQL, иначе они молча пропускаются и ошибка уезжает в CI.
 
 ## Конвенции Flutter-клиента
 

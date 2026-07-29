@@ -213,6 +213,12 @@ type postgresPetState struct {
 	needsUpdatedAt time.Time
 	needsZeroSince pgtype.Timestamptz
 	sleepingUntil  pgtype.Timestamptz
+
+	// One night handed over by the activity sync and not yet folded in.
+	// Care owns every needs transition, so it is applied here rather than
+	// where it was recorded (CORE_FORMULAS.md §1.8).
+	pendingRestMinutes uint16
+	pendingRestQuality uint8
 }
 
 func lockPlayer(ctx context.Context, tx pgx.Tx, playerID string) error {
@@ -241,10 +247,12 @@ func lockPetState(
 	var needsJSON []byte
 	var revision int64
 	var hungerRemainder, energyRemainder, hygieneRemainder, moodRemainder int64
+	var restMinutes int32
+	var restQuality int16
 	err := tx.QueryRow(ctx, `SELECT id::text,needs,care_revision,
 		needs_updated_at,hunger_decay_remainder,energy_decay_remainder,
 		hygiene_decay_remainder,mood_decay_remainder,needs_zero_since,
-		sleeping_until,is_weak
+		sleeping_until,is_weak,pending_rest_minutes,pending_rest_quality
 		FROM pets WHERE owner_id=$1 AND id=$2 FOR UPDATE`,
 		playerID,
 		petID,
@@ -260,6 +268,8 @@ func lockPetState(
 		&state.needsZeroSince,
 		&state.sleepingUntil,
 		&state.core.Weak,
+		&restMinutes,
+		&restQuality,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return postgresPetState{}, ErrPetNotFound
@@ -273,9 +283,13 @@ func lockPetState(
 		hungerRemainder < 0 || hungerRemainder >= 10_800_000 ||
 		energyRemainder < 0 || energyRemainder >= 10_800_000 ||
 		hygieneRemainder < 0 || hygieneRemainder >= 10_800_000 ||
-		moodRemainder < 0 || moodRemainder >= 10_800_000 {
+		moodRemainder < 0 || moodRemainder >= 10_800_000 ||
+		restMinutes < 0 || restMinutes > 65_535 ||
+		restQuality < 0 || restQuality > 100 {
 		return postgresPetState{}, ErrPetState
 	}
+	state.pendingRestMinutes = uint16(restMinutes)
+	state.pendingRestQuality = uint8(restQuality)
 	state.revision = uint64(revision)
 	state.needsUpdatedAt = state.needsUpdatedAt.UTC()
 	state.core.Needs = needs
@@ -335,6 +349,24 @@ func advancePetState(
 		if err != nil {
 			return postgresPetState{}, err
 		}
+	}
+	if state.pendingRestMinutes > 0 {
+		rested, err := core.ApplyRest(
+			ctx,
+			state.core,
+			state.pendingRestMinutes,
+			state.pendingRestQuality,
+		)
+		if err != nil {
+			return postgresPetState{}, fmt.Errorf("apply pending rest: %w", err)
+		}
+		if err := validateCoreState(rested); err != nil {
+			return postgresPetState{}, err
+		}
+		state.core = rested
+		// Consumed: the night must not be folded in twice.
+		state.pendingRestMinutes = 0
+		state.pendingRestQuality = 0
 	}
 	state.needsUpdatedAt = now
 	return state, nil
@@ -413,7 +445,8 @@ func updatePetState(
 		needs=$3,care_revision=$4,needs_updated_at=$5,
 		hunger_decay_remainder=$6,energy_decay_remainder=$7,
 		hygiene_decay_remainder=$8,mood_decay_remainder=$9,
-		needs_zero_since=$10,sleeping_until=$11,is_weak=$12
+		needs_zero_since=$10,sleeping_until=$11,is_weak=$12,
+		pending_rest_minutes=$13,pending_rest_quality=$14
 		WHERE owner_id=$1 AND id=$2`,
 		playerID,
 		state.id,
@@ -427,6 +460,8 @@ func updatePetState(
 		zeroSince,
 		sleepingUntil,
 		state.core.Weak,
+		int32(state.pendingRestMinutes),
+		int16(state.pendingRestQuality),
 	)
 	if err != nil {
 		return fmt.Errorf("update reconciled pet: %w", err)

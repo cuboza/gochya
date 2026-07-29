@@ -455,6 +455,70 @@ func saturatingAdd(value uint8, amount uint8) uint8 {
 	return uint8(total)
 }
 
+// A night handed over by the activity sync reaches the pet through the care
+// transaction, and only once (CORE_FORMULAS.md §1.8).
+func TestPostgresCareAppliesPendingRestOnce(t *testing.T) {
+	databaseURL := os.Getenv("GOCHYA_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("GOCHYA_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	pool := carePostgresPool(t, ctx, databaseURL)
+	rawNow := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	now := rawNow.Truncate(time.Second)
+	seedCareData(t, ctx, pool, now)
+	// needs_updated_at = now so decay is not in the picture: this test is about
+	// the rest effect alone.
+	if _, err := pool.Exec(ctx, `UPDATE pets
+		   SET needs = '{"hunger":80,"energy":20,"hygiene":60,"mood":50}',
+		       needs_updated_at = $2,
+		       pending_rest_minutes = 450,
+		       pending_rest_quality = 100
+		 WHERE id = $1`, testPetID, now); err != nil {
+		t.Fatalf("queue pending rest: %v", err)
+	}
+	store, err := NewPostgresStore(pool)
+	if err != nil {
+		t.Fatalf("NewPostgresStore: %v", err)
+	}
+	// The real engine, so the numbers are the Core's and not a fake's.
+	core := corebridge.NativeEngine{}
+	commit := careCommit(now, testOpID, 0, OperationClean, actionClean, 0, "")
+	commit.Now = rawNow
+
+	response, err := store.Reconcile(ctx, commit, core)
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	// A full good night is the whole rest allowance on top of 20.
+	if got := response.CanonicalSnapshots[0].Needs.Energy; got != 80 {
+		t.Fatalf("energy after rest = %d, want 80", got)
+	}
+
+	var minutes, quality int
+	if err := pool.QueryRow(ctx,
+		`SELECT pending_rest_minutes,pending_rest_quality FROM pets WHERE id=$1`,
+		testPetID,
+	).Scan(&minutes, &quality); err != nil {
+		t.Fatalf("read pending rest: %v", err)
+	}
+	if minutes != 0 || quality != 0 {
+		t.Fatalf("pending rest left as %d/%d, want cleared", minutes, quality)
+	}
+
+	// A second care action must not fold the same night in again.
+	second := careCommit(now, "44444444-4444-4444-8444-444444444444", 1, OperationClean, actionClean, 0, "")
+	second.Now = rawNow.Add(time.Second)
+	again, err := store.Reconcile(ctx, second, core)
+	if err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	if got := again.CanonicalSnapshots[0].Needs.Energy; got > 80 {
+		t.Fatalf("energy rose again to %d — the night was applied twice", got)
+	}
+}
+
 func seedCareData(
 	t *testing.T,
 	ctx context.Context,
